@@ -1,0 +1,17 @@
+adapter_type: sga_gsn
+
+feature_extractor:
+  freeze: true
+
+backbone:
+  type: sga_gsn
+  latent_dim: 32
+  hidden_dim: 64
+
+predictor:
+  type: stability_head
+  hidden_dim: 64
+
+contact_semantics:
+  tactile_threshold: 0.2
+  edge_scale: 0.05

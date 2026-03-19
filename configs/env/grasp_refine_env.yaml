@@ -1,0 +1,40 @@
+seed: 7
+
+scene:
+  use_gui: false
+  time_step: 0.0041666667
+  gravity: [0.0, 0.0, -9.81]
+  workspace_bounds:
+    position: [[-0.1, 0.1], [-0.1, 0.1], [0.0, 0.2]]
+
+action:
+  translation_bound: [0.01, 0.01, 0.01]
+  rotation_bound: [0.1, 0.1, 0.1]
+
+reward:
+  weights:
+    drop: 1.0
+    stability: 0.5
+    contact: 0.1
+  stability_alpha: 0.1
+  stability_clip: [-1.0, 1.0]
+  contact_beta: 0.5
+  contact_clip: [-0.25, 0.25]
+  drop_success_reward: 1.0
+  drop_failure_reward: -1.0
+
+sampling:
+  position_noise: [0.015, 0.015, 0.015]
+  rotation_noise: [0.12, 0.12, 0.12]
+
+default_sample_cfg:
+  object_name: cube
+  object_pose:
+    position: [0.0, 0.0, 0.04]
+    rotation: [0.0, 0.0, 0.0]
+  target_grasp_pose:
+    position: [0.0, 0.0, 0.08]
+    rotation: [0.0, 0.0, 0.0]
+  trial:
+    max_position_error: 0.015
+    max_rotation_error: 0.2

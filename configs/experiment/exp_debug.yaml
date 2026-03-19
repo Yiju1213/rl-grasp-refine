@@ -1,0 +1,16 @@
+name: exp_debug
+seed: 7
+num_iterations: 5
+
+configs:
+  env: configs/env/grasp_refine_env.yaml
+  perception: configs/perception/perception.yaml
+  calibration: configs/calibration/online_calibrator.yaml
+  rl: configs/rl/ppo.yaml
+  backbone: configs/model/backbone.yaml
+  predictor: configs/model/predictor.yaml
+  actor_critic: configs/model/actor_critic.yaml
+
+logging:
+  log_dir: outputs/exp_debug
+  checkpoint_dir: outputs/exp_debug/checkpoints

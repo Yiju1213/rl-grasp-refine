@@ -1,0 +1,13 @@
+device: cpu
+batch_episodes: 32
+gamma: 0.99
+lam: 0.95
+learning_rate: 0.0003
+clip_range: 0.2
+value_loss_coef: 0.5
+entropy_coef: 0.01
+update_epochs: 4
+minibatch_size: 16
+max_grad_norm: 0.5
+normalize_advantages: true
+num_envs: 1
