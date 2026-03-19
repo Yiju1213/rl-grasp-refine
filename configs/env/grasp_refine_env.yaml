@@ -1,40 +1,96 @@
+# v1 环境配置。
+# 当前主要由 scripts/_common.py -> build_env() 构造后，分别传给：
+# - GraspRefineEnv
+# - PyBulletScene
+# - ActionExecutor
+# - RewardManager
+
+# 环境内部随机数种子。当前主要影响 reset() 时 initial grasp 的采样噪声。
 seed: 7
 
 scene:
+  # 是否用 PyBullet GUI。false 时走 DIRECT 模式，适合训练和 smoke check。
   use_gui: false
+
+  # PyBullet 物理步长。当前在 PyBulletScene._connect/reset_scene() 中使用。
   time_step: 0.0041666667
+
+  # PyBullet 重力。当前在 PyBulletScene._connect/reset_scene() 中使用。
   gravity: [0.0, 0.0, -9.81]
+
   workspace_bounds:
+    # 预留的工作空间边界。
+    # 当前代码没有直接消费这个字段，更多是给后续真实 scene / action clipping 预留。
     position: [[-0.1, 0.1], [-0.1, 0.1], [0.0, 0.2]]
 
 action:
+  # policy 输出前 3 维的物理平移上限（米）。
+  # ActionExecutor.decode() 会把 [-1, 1] 映射到这个范围。
   translation_bound: [0.01, 0.01, 0.01]
+
+  # policy 输出后 3 维的物理旋转上限（rotation vector / rad）。
+  # ActionExecutor.decode() 会把 [-1, 1] 映射到这个范围。
   rotation_bound: [0.1, 0.1, 0.1]
 
 reward:
   weights:
+    # drop reward 的全局权重。RewardManager.compute() 中参与 total 计算。
     drop: 1.0
+
+    # stability reward 的全局权重。RewardManager.compute() 中参与 total 计算。
     stability: 0.5
+
+    # contact reward 的全局权重。RewardManager.compute() 中参与 total 计算。
     contact: 0.1
+
+  # 稳定性奖励中的 uncertainty 惩罚系数。
+  # 公式：gain - stability_alpha * max(0, u_after - u_before)
   stability_alpha: 0.1
+
+  # stability reward 的裁剪范围。
   stability_clip: [-1.0, 1.0]
+
+  # contact reward 中 edge proximity 增量的惩罚系数。
   contact_beta: 0.5
+
+  # contact reward 的裁剪范围。
   contact_clip: [-0.25, 0.25]
+
+  # drop_success == 1 时的基础分值。
   drop_success_reward: 1.0
+
+  # drop_success == 0 时的基础分值。
   drop_failure_reward: -1.0
 
 sampling:
+  # reset() 时 initial grasp 相对 target grasp 的位置随机扰动范围。
+  # 当前由 GraspRefineEnv._sample_initial_state() 使用。
   position_noise: [0.015, 0.015, 0.015]
+
+  # reset() 时 initial grasp 相对 target grasp 的旋转随机扰动范围。
   rotation_noise: [0.12, 0.12, 0.12]
 
 default_sample_cfg:
+  # 物体名称。当前主要作为样本语义字段保留，未进入核心逻辑判断。
   object_name: cube
+
   object_pose:
+    # 物体初始位置。当前 PyBulletScene.reset_scene() 会用 position 创建一个 box。
     position: [0.0, 0.0, 0.04]
+
+    # 物体初始旋转。当前代码没有直接使用这个字段，属于后续真实 scene 预留。
     rotation: [0.0, 0.0, 0.0]
+
   target_grasp_pose:
+    # 目标 grasp 的位置。当前 success heuristic 和 raw observation 都围绕它构造。
     position: [0.0, 0.0, 0.08]
+
+    # 目标 grasp 的旋转（rotation vector）。当前 success heuristic 会用它计算 rotation error。
     rotation: [0.0, 0.0, 0.0]
+
   trial:
+    # position error 小于该阈值时，trial 才可能判成功。
     max_position_error: 0.015
+
+    # rotation error 小于该阈值时，trial 才可能判成功。
     max_rotation_error: 0.2

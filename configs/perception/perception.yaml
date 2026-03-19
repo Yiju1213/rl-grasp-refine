@@ -1,17 +1,45 @@
+# perception 主配置。
+# 当前由 scripts/_common.py -> build_env() -> build_perception_stack() 直接消费。
+
+# 用哪个 adapter 族来决定输入适配方式。
+# 当前：
+# - "sga_gsn" -> SGAGSNAdapter + SGAGSNEncoder
+# - "dgcnn"   -> DGCNNAdapter + DGCNNEncoder
+# 实际 backbone 选择优先看这个字段，而不是 backbone.type。
 adapter_type: sga_gsn
 
 feature_extractor:
+  # 是否冻结 backbone 推理。
+  # 当前 FeatureExtractor.extract() / StabilityPredictor.predict_logit() 在 freeze=true 时走 eval + no_grad。
   freeze: true
 
 backbone:
+  # 文档化的 backbone 类型。
+  # 当前 build_feature_extractor() 不直接读取这个字段来选模型，真正选择仍取决于 adapter_type。
   type: sga_gsn
+
+  # latent feature 的维度。
+  # 当前会影响：
+  # - SGAGSNEncoder / DGCNNEncoder 输出维度
+  # - StabilityHead 输入维度
+  # - infer_obs_dim() 计算 policy/value 的 obs_dim
   latent_dim: 32
+
+  # backbone 内部 MLP 的隐藏层宽度。
   hidden_dim: 64
 
 predictor:
+  # 文档化的 predictor 类型。
+  # 当前 build_stability_predictor() 固定实例化 StabilityHead，没有按这个字段分支。
   type: stability_head
+
+  # StabilityHead 内部隐藏层宽度。
   hidden_dim: 64
 
 contact_semantics:
+  # tactile 激活阈值。超过这个阈值的 contact 值会被视为 active contact。
   tactile_threshold: 0.2
+
+  # edge proximity 的归一化尺度。
+  # 距离越小，compute_edge_proximity() 输出越接近 1。
   edge_scale: 0.05

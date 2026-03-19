@@ -1,16 +1,43 @@
+# 顶层实验配置。
+# 当前由 scripts/train.py、scripts/evaluate.py、scripts/sanity_check_env.py、
+# scripts/debug_single_rollout.py、scripts/debug_calibrator.py 共同读取。
+
+# 实验名。当前主要是文档化字段，没有被逻辑直接使用。
 name: exp_debug
+
+# 实验随机种子。train/evaluate 脚本会优先用这里的值。
 seed: 7
+
+# 训练迭代数。当前 train.py -> Trainer.train() 直接读取。
 num_iterations: 5
 
 configs:
+  # 环境主配置路径。build_env() 会消费其中的大部分字段。
   env: configs/env/grasp_refine_env.yaml
+
+  # perception 主配置路径。当前真实生效的是这个文件里的 backbone/predictor 段。
   perception: configs/perception/perception.yaml
+
+  # calibrator 配置路径。由 OnlineLogitCalibrator 读取。
   calibration: configs/calibration/online_calibrator.yaml
+
+  # PPO / Trainer 配置路径。由 PPOAgent 和 Trainer 读取。
   rl: configs/rl/ppo.yaml
+
+  # 预留的 backbone 拆分配置。
+  # 当前 load_experiment_bundle() 会把它读进来，但 train/evaluate 脚本没有实际消费它。
   backbone: configs/model/backbone.yaml
+
+  # 预留的 predictor 拆分配置。
+  # 当前同样会被读入 bundle，但还没有被脚本实际使用。
   predictor: configs/model/predictor.yaml
+
+  # actor-critic 网络配置路径。当前 build_actor_critic() 直接消费。
   actor_critic: configs/model/actor_critic.yaml
 
 logging:
+  # 训练日志目录。Logger 会在这里写 run.log 和 metrics.jsonl。
   log_dir: outputs/exp_debug
+
+  # checkpoint 保存目录。train.py 最终会把 final.pt 写到这里。
   checkpoint_dir: outputs/exp_debug/checkpoints
