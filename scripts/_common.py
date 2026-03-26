@@ -20,7 +20,7 @@ from src.envs.termination import SingleStepTermination
 from src.models.rl.actor_critic import ActorCritic
 from src.models.rl.policy_network import PolicyNetwork
 from src.models.rl.value_network import ValueNetwork
-from src.perception.factory import build_perception_stack
+from src.perception.factory import build_perception_stack, infer_perception_feature_dim
 from src.utils.config import load_config
 
 
@@ -40,7 +40,7 @@ def load_experiment_bundle(experiment_path: str | Path) -> tuple[dict, dict]:
 
 
 def infer_obs_dim(perception_cfg: dict) -> int:
-    latent_dim = int(perception_cfg.get("backbone", {}).get("latent_dim", 32))
+    latent_dim = int(infer_perception_feature_dim(perception_cfg))
     return latent_dim + 2 + 6 + 1
 
 

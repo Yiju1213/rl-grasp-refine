@@ -37,6 +37,8 @@ class GraspRefineEnv:
         self.obs_before: Observation | None = None
         self.grasp_pose_before: GraspPose | None = None
         self.sample_cfg: dict | None = None
+        self.raw_obs_before = None
+        self.raw_obs_after = None
         self.max_reset_attempts = int(cfg.get("max_reset_attempts", 32))
 
     def reset(self) -> Observation:
@@ -49,6 +51,8 @@ class GraspRefineEnv:
                 self.grasp_pose_before = self._get_initial_grasp_pose(self.sample_cfg)
                 self.scene.set_initial_grasp(self.grasp_pose_before)
                 raw_obs_before = self.scene.get_raw_observation()
+                self.raw_obs_before = raw_obs_before
+                self.raw_obs_after = None
                 self.obs_before = self.observation_builder.build(raw_obs_before, self.grasp_pose_before)
                 return self.obs_before
             except Exception as exc:
@@ -69,6 +73,7 @@ class GraspRefineEnv:
         refined_pose = self.action_executor.apply_to_pose(self.grasp_pose_before, physical_action)
         self.scene.apply_refinement(refined_pose)
         raw_obs_after = self.scene.get_raw_observation()
+        self.raw_obs_after = raw_obs_after
         obs_after = self.observation_builder.build(raw_obs_after, refined_pose)
         trial_result = self.scene.run_grasp_trial()
 
@@ -99,6 +104,7 @@ class GraspRefineEnv:
             },
         )
         self.obs_before = obs_after
+        self.raw_obs_before = raw_obs_after
         self.grasp_pose_before = refined_pose
         return obs_after, reward_breakdown.total, done, info
 

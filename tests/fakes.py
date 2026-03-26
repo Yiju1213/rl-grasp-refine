@@ -59,9 +59,9 @@ def make_env_cfg(seed: int = 7) -> dict:
 
 def make_perception_cfg() -> dict:
     return {
-        "adapter_type": "sga_gsn",
+        "adapter_type": "dgcnn",
         "feature_extractor": {"freeze": True},
-        "backbone": {"type": "sga_gsn", "latent_dim": 32, "hidden_dim": 64},
+        "backbone": {"type": "dgcnn", "latent_dim": 32, "hidden_dim": 64},
         "predictor": {"type": "stability_head", "hidden_dim": 64},
         "contact_semantics": {"tactile_threshold": 0.2, "edge_scale": 0.05},
     }

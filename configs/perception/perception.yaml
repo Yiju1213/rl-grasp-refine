@@ -3,7 +3,7 @@
 
 # 用哪个 adapter 族来决定输入适配方式。
 # 当前：
-# - "sga_gsn" -> SGAGSNAdapter + SGAGSNEncoder
+# - "sga_gsn" -> SGAGSNAdapter + shared AdaPoinTr/SGSNet runtime
 # - "dgcnn"   -> DGCNNAdapter + DGCNNEncoder
 # 实际 backbone 选择优先看这个字段，而不是 backbone.type。
 adapter_type: sga_gsn
@@ -14,16 +14,11 @@ feature_extractor:
   freeze: true
 
 backbone:
-  # 文档化的 backbone 类型。
-  # 当前 build_feature_extractor() 不直接读取这个字段来选模型，真正选择仍取决于 adapter_type。
+  # 文档化字段。adapter_type=sga_gsn 时真实 feature dim 由下方 runtime config 决定。
   type: sga_gsn
 
-  # latent feature 的维度。
-  # 当前会影响：
-  # - SGAGSNEncoder / DGCNNEncoder 输出维度
-  # - StabilityHead 输入维度
-  # - infer_obs_dim() 计算 policy/value 的 obs_dim
-  latent_dim: 32
+  # 占位文档字段。对于真实 SGA-GSN 路径，obs dim 会读取运行时 config 对应的 body feature dim。
+  latent_dim: 576
 
   # backbone 内部 MLP 的隐藏层宽度。
   hidden_dim: 64
@@ -43,3 +38,18 @@ contact_semantics:
   # edge proximity 的归一化尺度。
   # 距离越小，compute_edge_proximity() 输出越接近 1。
   edge_scale: 0.05
+
+sga_gsn:
+  runtime:
+    source_root: /AdaPoinTr
+    device: cuda:0
+    config_path: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx_LocalDensity_ValNoSC/config.yaml
+    shape_checkpoint: /AdaPoinTr/ckpts/ap_ps55.pth
+    grasp_checkpoint: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx_LocalDensity_ValNoSC/ckpt-best.pth
+    vis_points: 2048
+    tac_points_per_side: 1200
+    sc_input_points: 2048
+    tactile_step: 8
+    camera_distance_to_gel_m: 0.02315
+    tactile_noise_eps: 0.0001
+    seed: 7
