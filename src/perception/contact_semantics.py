@@ -3,6 +3,20 @@ from __future__ import annotations
 import numpy as np
 
 
+def _extract_tactile_signal(raw_obs):
+    tactile = raw_obs.tactile_data
+    if isinstance(tactile, dict):
+        return tactile.get("contact_map", tactile.get("depth", tactile.get("rgb")))
+    return tactile
+
+
+def _signal_to_scalar_map(signal) -> np.ndarray:
+    signal_array = np.asarray(signal, dtype=np.float32)
+    if signal_array.ndim >= 4 and signal_array.shape[-1] == 3:
+        signal_array = signal_array.mean(axis=-1)
+    return signal_array
+
+
 class ContactSemanticsExtractor:
     """Extract a compact contact semantic vector."""
 
@@ -16,26 +30,33 @@ class ContactSemanticsExtractor:
         return np.asarray([coverage_ratio, edge_proximity], dtype=np.float32)
 
     def compute_coverage_ratio(self, raw_obs) -> float:
-        tactile = raw_obs.tactile_data
-        if isinstance(tactile, dict):
-            contact_map = tactile.get("contact_map", tactile.get("values", tactile.get("embedding")))
-        else:
-            contact_map = tactile
-        if contact_map is None:
+        tactile_signal = _extract_tactile_signal(raw_obs)
+        if tactile_signal is None:
             return 0.0
-        contact_array = np.asarray(contact_map, dtype=np.float32).reshape(-1)
+        # TODO: Replace this placeholder with the actual tactile coverage metric
+        # computed from calibrated tac RGB/depth observations.
+        contact_array = _signal_to_scalar_map(tactile_signal).reshape(-1)
         if contact_array.size == 0:
             return 0.0
         active = np.abs(contact_array) > self.tactile_threshold
         return float(np.mean(active))
 
     def compute_edge_proximity(self, raw_obs) -> float:
-        metadata = raw_obs.grasp_metadata
-        distance_to_edge = metadata.get("distance_to_edge")
-        if distance_to_edge is None and isinstance(raw_obs.visual_data, dict):
-            distance_to_edge = raw_obs.visual_data.get("distance_to_edge")
-        if distance_to_edge is None:
+        tactile_signal = _extract_tactile_signal(raw_obs)
+        if tactile_signal is None:
             return 0.0
-        distance = max(float(distance_to_edge), 0.0)
-        proximity = 1.0 - min(distance / max(self.edge_scale, 1e-6), 1.0)
-        return float(np.clip(proximity, 0.0, 1.0))
+        # TODO: Replace this placeholder with a tactile edge metric derived from
+        # tac RGB/depth geometry instead of visual segmentation.
+        scalar_map = _signal_to_scalar_map(tactile_signal)
+        if scalar_map.ndim == 2:
+            scalar_map = scalar_map[None, ...]
+        if scalar_map.size == 0:
+            return 0.0
+
+        sensor_maps = scalar_map.reshape(scalar_map.shape[0], -1)
+        if sensor_maps.shape[0] == 1:
+            active = np.abs(sensor_maps[0]) > self.tactile_threshold
+            return float(np.mean(active))
+
+        active_ratio = [float(np.mean(np.abs(sensor_map) > self.tactile_threshold)) for sensor_map in sensor_maps[:2]]
+        return float(np.clip(abs(active_ratio[0] - active_ratio[1]), 0.0, 1.0))

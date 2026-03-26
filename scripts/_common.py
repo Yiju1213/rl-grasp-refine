@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.envs.action_executor import ActionExecutor
+from src.envs.dataset_sample_provider import DatasetSampleProvider
 from src.envs.grasp_refine_env import GraspRefineEnv
 from src.envs.observation_builder import ObservationBuilder
 from src.envs.pybullet_scene import PyBulletScene
@@ -52,7 +53,19 @@ def build_env(
     feature_extractor, contact_semantics_extractor, stability_predictor = build_perception_stack(perception_cfg)
     calibrator = calibrator or OnlineLogitCalibrator(calibration_cfg)
     scene = PyBulletScene(env_cfg.get("scene", {}))
+    sample_provider = None
+    dataset_cfg = env_cfg.get("dataset", {})
+    if dataset_cfg.get("enabled", False):
+        # TODO: DatasetSampleProvider still performs eager metadata indexing at
+        # startup. Keep the current behavior for now and optimize only after the
+        # scene reset lifecycle changes are validated.
+        sample_provider = DatasetSampleProvider(dataset_cfg)
     action_executor = ActionExecutor(env_cfg.get("action", {}))
+    #TODO 分析ObservationBuilder是否需要改成工厂模式，或者直接放在GraspRefineEnv里，避免每次构建环境都要构建一遍感知模块
+    # 因为感知模块的构建可能比较慢，尤其是特征提取器，如果每次环境重置或是并行环境构建都要重新构建一遍，可能会导致性能问题
+    # 但是保持工厂模式又需要考虑如何在多个环境实例之间共享感知模块
+    # 因为多个环境难以在同一个时间步给出raw_obs，所以尝试使用batch的inference可能有难度
+    # 可以尝试构建batch_size=queue，队列收满就做一次inference，或者直接在每个环境里维护一个感知模块的实例，虽然会有资源浪费，但实现起来可能更简单
     observation_builder = ObservationBuilder(
         feature_extractor=feature_extractor,
         contact_semantics_extractor=contact_semantics_extractor,
@@ -68,6 +81,7 @@ def build_env(
         reward_manager=reward_manager,
         calibrator=calibrator,
         termination=termination,
+        sample_provider=sample_provider,
     )
     return env, calibrator
 

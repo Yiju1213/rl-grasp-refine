@@ -14,6 +14,8 @@ def _summarize_tensor(tensor: torch.Tensor | None, batch_size: int, target_dim: 
         flat = tensor
     else:
         flat = tensor.reshape(tensor.shape[0], -1)
+    if flat.shape[1] == 0:
+        return torch.zeros(batch_size, target_dim, dtype=flat.dtype, device=flat.device)
     mean = flat.mean(dim=1, keepdim=True)
     std = flat.std(dim=1, keepdim=True, unbiased=False)
     min_value = flat.min(dim=1, keepdim=True).values

@@ -19,7 +19,7 @@ def _to_float_tensor(value, add_batch_dim: bool = True) -> torch.Tensor:
 
     if add_batch_dim and tensor.dim() == 1:
         tensor = tensor.unsqueeze(0)
-    elif add_batch_dim and tensor.dim() == 2 and tensor.shape[0] != 1:
+    elif add_batch_dim and tensor.dim() >= 2 and tensor.shape[0] != 1:
         tensor = tensor.unsqueeze(0)
     return tensor
 
@@ -27,8 +27,12 @@ def _to_float_tensor(value, add_batch_dim: bool = True) -> torch.Tensor:
 def _extract_point_cloud(raw_obs: RawSensorObservation):
     visual = raw_obs.visual_data
     if isinstance(visual, dict):
-        return visual.get("point_cloud")
-    return visual
+        point_cloud = visual.get("point_cloud")
+        if point_cloud is not None:
+            return point_cloud
+    # TODO: Replace this dummy tensor with world-frame point cloud reconstruction
+    # from visual depth/segmentation plus view/projection matrices and pose metadata.
+    return np.zeros((1, 3), dtype=np.float32)
 
 
 def _extract_tactile(raw_obs: RawSensorObservation):
@@ -47,6 +51,10 @@ def _grasp_pose_to_array(grasp_pose) -> np.ndarray:
 def _sensor_summary(raw_obs: RawSensorObservation) -> torch.Tensor:
     point_cloud = np.asarray(_extract_point_cloud(raw_obs) if _extract_point_cloud(raw_obs) is not None else [0.0])
     tactile = np.asarray(_extract_tactile(raw_obs) if _extract_tactile(raw_obs) is not None else [0.0])
+    if point_cloud.size == 0:
+        point_cloud = np.asarray([0.0], dtype=np.float32)
+    if tactile.size == 0:
+        tactile = np.asarray([0.0], dtype=np.float32)
     summary = np.asarray(
         [
             float(np.mean(point_cloud)),

@@ -8,6 +8,8 @@ from src.structures.action import GraspPose, NormalizedAction
 from src.structures.info import StepInfo
 from src.structures.observation import Observation
 
+from src.envs.pybullet_scene import PyBulletScene
+from src.envs.observation_builder import ObservationBuilder
 
 class GraspRefineEnv:
     """Single-step grasp refinement environment."""
@@ -21,27 +23,40 @@ class GraspRefineEnv:
         reward_manager,
         calibrator,
         termination,
+        sample_provider=None,
     ):
         self.cfg = cfg
-        self.scene = scene
+        self.scene: PyBulletScene = scene
         self.action_executor = action_executor
-        self.observation_builder = observation_builder
+        self.observation_builder: ObservationBuilder = observation_builder
         self.reward_manager = reward_manager
         self.calibrator = calibrator
         self.termination = termination
+        self.sample_provider = sample_provider
         self.rng = np.random.default_rng(int(cfg.get("seed", 0)))
         self.obs_before: Observation | None = None
         self.grasp_pose_before: GraspPose | None = None
         self.sample_cfg: dict | None = None
+        self.max_reset_attempts = int(cfg.get("max_reset_attempts", 32))
 
     def reset(self) -> Observation:
-        self.sample_cfg = self._sample_initial_state()
-        self.scene.reset_scene(self.sample_cfg)
-        self.grasp_pose_before = self._get_initial_grasp_pose(self.sample_cfg)
-        self.scene.set_initial_grasp(self.grasp_pose_before)
-        raw_obs_before = self.scene.get_raw_observation()
-        self.obs_before = self.observation_builder.build(raw_obs_before, self.grasp_pose_before)
-        return self.obs_before
+        last_error: Exception | None = None
+        for _ in range(self.max_reset_attempts):
+            try:
+                print("[NEW ATTEMPT]")
+                self.sample_cfg = self._sample_initial_state()
+                self.scene.reset_scene(self.sample_cfg)
+                self.grasp_pose_before = self._get_initial_grasp_pose(self.sample_cfg)
+                self.scene.set_initial_grasp(self.grasp_pose_before)
+                raw_obs_before = self.scene.get_raw_observation()
+                self.obs_before = self.observation_builder.build(raw_obs_before, self.grasp_pose_before)
+                return self.obs_before
+            except Exception as exc:
+                # print(f"[GraspRefineEnv.reset] reset attempt failed: {exc}")
+                last_error = exc
+                continue
+
+        raise RuntimeError(f"Failed to reset environment after {self.max_reset_attempts} attempts: {last_error}")
 
     def step(self, action: NormalizedAction):
         if self.obs_before is None or self.grasp_pose_before is None:
@@ -53,9 +68,9 @@ class GraspRefineEnv:
         physical_action = self.action_executor.decode(action)
         refined_pose = self.action_executor.apply_to_pose(self.grasp_pose_before, physical_action)
         self.scene.apply_refinement(refined_pose)
-        trial_result = self.scene.run_grasp_trial()
         raw_obs_after = self.scene.get_raw_observation()
         obs_after = self.observation_builder.build(raw_obs_after, refined_pose)
+        trial_result = self.scene.run_grasp_trial()
 
         calibrated_before, uncertainty_before = self.calibrator.predict(self.obs_before.raw_stability_logit)
         calibrated_after, uncertainty_after = self.calibrator.predict(obs_after.raw_stability_logit)
@@ -88,6 +103,9 @@ class GraspRefineEnv:
         return obs_after, reward_breakdown.total, done, info
 
     def _sample_initial_state(self) -> dict:
+        if self.sample_provider is not None:
+            return self.sample_provider.sample()
+
         sample_cfg = deepcopy(self.cfg.get("default_sample_cfg", {}))
         target_pose = sample_cfg["target_grasp_pose"]
         sampling_cfg = self.cfg.get("sampling", {})
@@ -134,3 +152,20 @@ class GraspRefineEnv:
             reward_contact=float(reward_breakdown.contact),
             extra=extra,
         )
+
+    def close(self) -> None:
+        close_fn = getattr(self.scene, "close", None)
+        if callable(close_fn):
+            close_fn()
+
+    def get_debug_snapshot(self) -> dict:
+        scene_debug = {}
+        scene_getter = getattr(self.scene, "get_debug_snapshot", None)
+        if callable(scene_getter):
+            scene_debug = scene_getter()
+        return {
+            "sample_source": None if self.sample_cfg is None else self.sample_cfg.get("source"),
+            "grasp_pose_before": None if self.grasp_pose_before is None else self.grasp_pose_before.as_array().tolist(),
+            "obs_before_logit": None if self.obs_before is None else float(self.obs_before.raw_stability_logit),
+            "scene": scene_debug,
+        }

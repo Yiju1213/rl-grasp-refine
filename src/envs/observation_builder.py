@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.structures.observation import Observation, RawSensorObservation
 
-
+# TODO 换个跟perception部分更贴近的名称，同时可以尝试移过去
 class ObservationBuilder:
     """Build structured observations from raw scene outputs."""
 

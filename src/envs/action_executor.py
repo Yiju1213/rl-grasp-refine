@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation
 
 from src.structures.action import GraspPose, NormalizedAction, PhysicalAction
 
-
+# TODO 名称可以优化，比如叫PoseDeltaDecoder，PoseRefiner等，或者直接放在GraspRefineEnv里作为一个方法，因为它的功能比较简单，单独成文件可能有点过于冗余了
 class ActionExecutor:
     """Convert normalized policy outputs into physical pose deltas."""
 

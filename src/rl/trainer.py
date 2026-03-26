@@ -34,6 +34,7 @@ class Trainer:
         self.gamma = float(cfg.get("gamma", 0.99))
         self.lam = float(cfg.get("lam", 0.95))
         self.batch_episodes = int(cfg.get("batch_episodes", 32))
+        self.max_collect_attempt_factor = int(cfg.get("max_collect_attempt_factor", 10))
         self.device = torch.device(cfg.get("device", "cpu"))
         self.iteration = 0
 
@@ -63,19 +64,31 @@ class Trainer:
 
     def collect_rollout(self, num_episodes: int):
         self.buffer.clear()
+        #TODO 可以用单个函数同时处理单环境和多环境的rollout收集，避免代码重复
         if isinstance(self.env, DummyVecEnvWrapper):
             self._collect_rollout_vec(num_episodes)
         else:
             self._collect_rollout_single(num_episodes)
 
     def _collect_rollout_single(self, num_episodes: int) -> None:
-        for _ in range(num_episodes):
+        episodes_collected = 0
+        attempts = 0
+        max_attempts = max(num_episodes * self.max_collect_attempt_factor, num_episodes)
+        while episodes_collected < num_episodes:
+            attempts += 1
+            if attempts > max_attempts:
+                raise RuntimeError(
+                    f"Exceeded max rollout collection attempts ({max_attempts}) while collecting valid episodes."
+                )
             obs = self.env.reset()
             obs_tensor = observation_to_tensor(obs).to(self.device)
             with torch.no_grad():
                 action_tensor, log_prob, value, _ = self.actor_critic.act(obs_tensor)
             action_np = action_tensor_to_numpy(action_tensor).reshape(-1)
             next_obs, reward, done, info = self.env.step(NormalizedAction(value=action_np))
+            trial_metadata = info.extra.get("trial_metadata", {})
+            if not bool(trial_metadata.get("valid_for_learning", True)):
+                continue
             self.buffer.add(
                 obs=obs,
                 action=NormalizedAction(value=action_np),
@@ -88,10 +101,18 @@ class Trainer:
                 raw_logit_before=info.extra["raw_logit_before"],
                 raw_logit_after=info.extra["raw_logit_after"],
             )
+            episodes_collected += 1
 
     def _collect_rollout_vec(self, num_episodes: int) -> None:
         episodes_collected = 0
+        attempts = 0
+        max_attempts = max(num_episodes * self.max_collect_attempt_factor, num_episodes)
         while episodes_collected < num_episodes:
+            attempts += len(self.env.envs) if hasattr(self.env, "envs") else 1
+            if attempts > max_attempts:
+                raise RuntimeError(
+                    f"Exceeded max rollout collection attempts ({max_attempts}) while collecting valid episodes."
+                )
             obs_batch = self.env.reset()
             obs_tensor = observation_to_tensor(obs_batch).to(self.device)
             with torch.no_grad():
@@ -101,6 +122,9 @@ class Trainer:
             remaining = num_episodes - episodes_collected
             keep = min(remaining, len(obs_batch))
             for index in range(keep):
+                trial_metadata = infos[index].extra.get("trial_metadata", {})
+                if not bool(trial_metadata.get("valid_for_learning", True)):
+                    continue
                 action = NormalizedAction(value=actions_np[index])
                 self.buffer.add(
                     obs=obs_batch[index],
@@ -114,7 +138,7 @@ class Trainer:
                     raw_logit_before=infos[index].extra["raw_logit_before"],
                     raw_logit_after=infos[index].extra["raw_logit_after"],
                 )
-            episodes_collected += keep
+                episodes_collected += 1
 
     def update_calibrator(self):
         batch = self.buffer.get_all()
