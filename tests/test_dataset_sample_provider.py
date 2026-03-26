@@ -84,10 +84,19 @@ class TestDatasetSampleProvider(unittest.TestCase):
                 quaternion_to_rotvec([0.0, 0.0, 0.0, 1.0]),
             )
 
-    def test_provider_shuffles_all_grasps_globally_per_epoch(self):
+    def test_provider_shuffles_by_object_blocks_per_epoch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_root = Path(tmpdir) / "tactile-extended"
-            expected_pairs = {(0, 10), (0, 11), (1, 20), (1, 21)}
+            expected_pairs = {
+                (0, 10),
+                (0, 11),
+                (0, 12),
+                (0, 13),
+                (1, 20),
+                (1, 21),
+                (1, 22),
+                (1, 23),
+            }
             for object_id, global_id in expected_pairs:
                 _write_entry(dataset_root, object_id=object_id, global_id=global_id)
 
@@ -95,6 +104,7 @@ class TestDatasetSampleProvider(unittest.TestCase):
                 {
                     "dataset_root": str(dataset_root),
                     "seed": 7,
+                    "object_block_size": 2,
                     "metadata_cache_size": 1,
                     "runtime_defaults": {"time_step": 0.005},
                 }
@@ -103,6 +113,7 @@ class TestDatasetSampleProvider(unittest.TestCase):
                 {
                     "dataset_root": str(dataset_root),
                     "seed": 7,
+                    "object_block_size": 2,
                     "metadata_cache_size": 1,
                     "runtime_defaults": {"time_step": 0.005},
                 }
@@ -121,11 +132,89 @@ class TestDatasetSampleProvider(unittest.TestCase):
             self.assertEqual(set(epoch_a), expected_pairs)
             self.assertEqual(len(epoch_a), len(set(epoch_a)))
             self.assertLessEqual(len(provider_a._metadata_cache), 1)
+            for block_start in range(0, len(epoch_a), 2):
+                self.assertEqual(epoch_a[block_start][0], epoch_a[block_start + 1][0])
+
+    def test_provider_shards_epoch_blocks_across_workers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            expected_pairs = {
+                (0, 10),
+                (0, 11),
+                (0, 12),
+                (0, 13),
+                (1, 20),
+                (1, 21),
+                (1, 22),
+                (1, 23),
+            }
+            for object_id, global_id in expected_pairs:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            provider_worker_0 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 2,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+            provider_worker_1 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 1,
+                    "num_workers": 2,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+            provider_worker_0_again = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 2,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+
+            epoch_worker_0 = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_worker_0.sample() for _ in range(len(expected_pairs) // 2))
+            ]
+            epoch_worker_1 = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_worker_1.sample() for _ in range(len(expected_pairs) // 2))
+            ]
+            epoch_worker_0_again = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_worker_0_again.sample() for _ in range(len(expected_pairs) // 2))
+            ]
+
+            self.assertEqual(epoch_worker_0, epoch_worker_0_again)
+            self.assertTrue(set(epoch_worker_0).isdisjoint(set(epoch_worker_1)))
+            self.assertEqual(set(epoch_worker_0) | set(epoch_worker_1), expected_pairs)
 
     def test_provider_uses_configured_seed(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_root = Path(tmpdir) / "tactile-extended"
-            expected_pairs = {(0, 10), (0, 11), (1, 20), (1, 21)}
+            expected_pairs = {
+                (0, 10),
+                (0, 11),
+                (0, 12),
+                (0, 13),
+                (1, 20),
+                (1, 21),
+                (1, 22),
+                (1, 23),
+            }
             for object_id, global_id in expected_pairs:
                 _write_entry(dataset_root, object_id=object_id, global_id=global_id)
 
@@ -135,6 +224,7 @@ class TestDatasetSampleProvider(unittest.TestCase):
                     {
                         "dataset_root": str(dataset_root),
                         "seed": seed,
+                        "object_block_size": 2,
                         "metadata_cache_size": 1,
                         "runtime_defaults": {"time_step": 0.005},
                     }

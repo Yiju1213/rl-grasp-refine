@@ -16,7 +16,7 @@ from src.envs.scene_assets import (
     spawn_object,
 )
 from src.envs.scene_contact import check_contact, check_target_force, has_any_contact
-from src.envs.scene_observation import capture_live_observation, load_before_observation, make_invalid_after_observation
+from src.envs.scene_observation import capture_scene_observation, make_invalid_after_observation
 from src.structures.action import GraspPose
 from src.structures.observation import RawSensorObservation
 from src.utils.geometry import rotvec_to_quaternion
@@ -31,7 +31,7 @@ GRIPPER_CLOSE_WIDTH = 0.8
 
 
 class PyBulletScene:
-    """Dataset-backed single-step scene with stored before and simulated after observations."""
+    """Dataset-backed single-step scene with live before/after observations."""
 
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -86,7 +86,7 @@ class PyBulletScene:
         self._last_runtime_counters = {}
         self._last_reset_debug = {}
         self._last_refine_debug = {}
-        self.before_raw_obs = load_before_observation(sample_cfg, self.cfg, self.initial_grasp_pose)
+        self.before_raw_obs = None
 
         tacto_action = self._ensure_static_scene_assets()
         self._restore_reset_runtime_state()
@@ -104,6 +104,16 @@ class PyBulletScene:
         reset_result["object_body_id"] = None if self.object_body is None else int(self.object_body.id)
         self._last_reset_debug = reset_result
         self._baseline_undesired_contact_count = int(reset_result["undesired_contact_count"])
+        self.before_raw_obs = capture_scene_observation(
+            sample_cfg=self.sample_cfg,
+            scene_cfg=self.cfg,
+            tacto_sensor=self.tacto_sensor,
+            hand=self.hand,
+            object_body=self.object_body,
+            client_id=self.client_id,
+            current_grasp_pose=self.current_grasp_pose,
+            stage="before",
+        )
         self._request_gui_render()
 
     def set_initial_grasp(self, grasp_pose) -> None:
@@ -152,7 +162,7 @@ class PyBulletScene:
             return self._last_after_raw_obs
 
         try:
-            self._last_after_raw_obs = capture_live_observation(
+            self._last_after_raw_obs = capture_scene_observation(
                 sample_cfg=self.sample_cfg,
                 scene_cfg=self.cfg,
                 tacto_sensor=self.tacto_sensor,
@@ -160,6 +170,7 @@ class PyBulletScene:
                 object_body=self.object_body,
                 client_id=self.client_id,
                 current_grasp_pose=self.current_grasp_pose,
+                stage="after",
             )
         except Exception:
             self._pending_trial_status = "system_sim_error"

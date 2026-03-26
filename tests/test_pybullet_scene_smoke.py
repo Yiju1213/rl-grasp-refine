@@ -37,6 +37,8 @@ class TestPyBulletSceneSmoke(unittest.TestCase):
         metadata_0 = provider._load_object_metadata(0)
         global_id_0 = int(next(iter(metadata_0.keys())))
         sample_0 = provider._entry_to_sample_cfg(object_id=0, global_id=global_id_0, entry=metadata_0[str(global_id_0)])
+        for key in sample_0["source"]["before_paths"]:
+            sample_0["source"]["before_paths"][key] = f"/nonexistent/{key}"
         metadata_1 = provider._load_object_metadata(1)
         global_id_1 = int(next(iter(metadata_1.keys())))
         sample_1 = provider._entry_to_sample_cfg(object_id=1, global_id=global_id_1, entry=metadata_1[str(global_id_1)])
@@ -95,6 +97,10 @@ class TestPyBulletSceneSmoke(unittest.TestCase):
         self.assertEqual(before.grasp_metadata["observation_stage"], "before")
         self.assertEqual(after_first.grasp_metadata["observation_stage"], "after")
         self.assertEqual(after_second.grasp_metadata["observation_stage"], "after")
+        self.assertEqual(before.visual_data["rgb"].shape, after_first.visual_data["rgb"].shape)
+        self.assertEqual(before.visual_data["depth"].shape, after_first.visual_data["depth"].shape)
+        self.assertEqual(before.tactile_data["rgb"].shape, after_first.tactile_data["rgb"].shape)
+        self.assertEqual(before.tactile_data["depth"].shape, after_first.tactile_data["depth"].shape)
         self.assertIn("valid_for_learning", first_trial["trial_metadata"])
         self.assertIn("valid_for_learning", second_trial["trial_metadata"])
         self.assertGreaterEqual(reset_calls["count"], 1)

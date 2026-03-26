@@ -14,6 +14,11 @@ dataset:
   dataset_root: /Datasets/GraspNet-1billion/tactile-extended
   seed: 7
   metadata_cache_size: 4
+  # 单 worker 内连续从同一 object 采样的 grasp block 大小。
+  object_block_size: 4
+  # 多进程训练时由外部为每个 worker 覆盖。
+  worker_id: 0
+  num_workers: 1
   runtime_defaults:
     time_step: 0.005
     close_timeout_s: 1.0

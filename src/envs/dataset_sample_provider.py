@@ -9,7 +9,7 @@ from src.utils.geometry import quaternion_to_rotvec
 
 
 class DatasetSampleProvider:
-    """Iterate tactile-extended entries with grasp-level global shuffle."""
+    """Iterate tactile-extended entries with object-block shuffle and worker sharding."""
 
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -19,13 +19,20 @@ class DatasetSampleProvider:
 
         self.seed = int(cfg.get("seed", 0))
         self.cache_size = int(cfg.get("metadata_cache_size", 4))
+        self.object_block_size = max(int(cfg.get("object_block_size", 4)), 1)
+        self.worker_id = int(cfg.get("worker_id", 0))
+        self.num_workers = max(int(cfg.get("num_workers", 1)), 1)
+        if self.worker_id < 0 or self.worker_id >= self.num_workers:
+            raise ValueError(
+                f"worker_id must be in [0, num_workers). Got worker_id={self.worker_id}, "
+                f"num_workers={self.num_workers}."
+            )
         self.runtime_defaults = cfg.get("runtime_defaults", {})
         self.rng = __import__("numpy").random.default_rng(self.seed)
         self._metadata_cache: OrderedDict[int, dict[str, Any]] = OrderedDict()
         # TODO: Provider startup is still dominated by eager metadata indexing. Leave
         # this as-is for now and revisit only if build/startup time becomes a bottleneck.
         self._object_entries = self._build_object_entries()
-        self._all_sample_pairs = self._build_sample_pairs()
         self._epoch_sample_pairs: list[tuple[int, int]] = []
 
     def _build_object_entries(self) -> dict[int, list[int]]:
@@ -63,17 +70,32 @@ class DatasetSampleProvider:
             self._metadata_cache.popitem(last=False)
         return metadata
 
-    def _build_sample_pairs(self) -> list[tuple[int, int]]:
-        sample_pairs: list[tuple[int, int]] = []
-        for object_id, global_ids in self._object_entries.items():
-            sample_pairs.extend((int(object_id), int(global_id)) for global_id in global_ids)
-        return sample_pairs
+    def _build_epoch_sample_pairs(self) -> list[tuple[int, int]]:
+        object_ids = list(self._object_entries.keys())
+        self.rng.shuffle(object_ids)
+
+        blocks: list[list[tuple[int, int]]] = []
+        for object_id in object_ids:
+            shuffled_global_ids = list(self._object_entries[object_id])
+            self.rng.shuffle(shuffled_global_ids)
+            for start in range(0, len(shuffled_global_ids), self.object_block_size):
+                block_global_ids = shuffled_global_ids[start : start + self.object_block_size]
+                blocks.append([(int(object_id), int(global_id)) for global_id in block_global_ids])
+
+        self.rng.shuffle(blocks)
+        worker_blocks = blocks[self.worker_id :: self.num_workers]
+        epoch_sample_pairs = [sample_pair for block in worker_blocks for sample_pair in block]
+        epoch_sample_pairs.reverse()
+        return epoch_sample_pairs
 
     def _prepare_next_epoch(self) -> None:
         if self._epoch_sample_pairs:
             return
-        self._epoch_sample_pairs = list(self._all_sample_pairs)
-        self.rng.shuffle(self._epoch_sample_pairs)
+        self._epoch_sample_pairs = self._build_epoch_sample_pairs()
+        if not self._epoch_sample_pairs:
+            raise RuntimeError(
+                f"No dataset samples assigned to worker {self.worker_id} out of {self.num_workers} workers."
+            )
 
     def sample(self) -> dict[str, Any]:
         self._prepare_next_epoch()

@@ -20,8 +20,6 @@ from src.envs.scene_assets import (
     set_object_body_collision_enabled,
     spawn_object,
 )
-from src.envs.scene_contact import matrix_from_metadata, matrix_to_pybullet_list
-from src.envs.scene_observation import current_visual_view_matrix
 from src.structures.action import NormalizedAction
 from src.envs.grasp_refine_env import GraspRefineEnv
 
@@ -296,31 +294,29 @@ def _show_visual_observation(env: GraspRefineEnv) -> None:
     scene = getattr(env, "scene", None)
     if scene is None or not bool(getattr(scene, "cfg", {}).get("visualize_debug_windows", False)):
         return
-    if getattr(scene, "sample_cfg", None) is None or getattr(scene, "hand", None) is None or getattr(scene, "object_body", None) is None:
+    raw_obs_getter = getattr(scene, "get_raw_observation", None)
+    if not callable(raw_obs_getter):
         return
 
-    sample_cfg = scene.sample_cfg
-    scene_cfg = getattr(scene, "cfg", {})
-    width = int(scene_cfg.get("visual_width", 448))
-    height = int(scene_cfg.get("visual_height", 448))
-    view_matrix = current_visual_view_matrix(sample_cfg=sample_cfg, hand=scene.hand, client_id=scene.client_id)
-    proj_matrix = matrix_from_metadata(sample_cfg["camera"]["visual_proj_matrix"])
-    renderer = pb.ER_BULLET_HARDWARE_OPENGL if bool(scene_cfg.get("use_gui", False)) else pb.ER_TINY_RENDERER
+    raw_obs = raw_obs_getter()
+    visual_data = getattr(raw_obs, "visual_data", None)
+    if not isinstance(visual_data, dict):
+        return
 
-    _, _, rgb_buffer, _, segmentation = pb.getCameraImage(
-        width=width,
-        height=height,
-        viewMatrix=matrix_to_pybullet_list(view_matrix),
-        projectionMatrix=matrix_to_pybullet_list(proj_matrix),
-        renderer=renderer,
-        physicsClientId=scene.client_id,
-    )
-    visual_rgb = np.asarray(rgb_buffer, dtype=np.uint8)[..., :3].copy()
-    visual_seg = np.asarray(segmentation, dtype=np.int32)
+    visual_rgb = np.asarray(visual_data.get("rgb"))
+    visual_seg = np.asarray(visual_data.get("seg"))
+    if visual_rgb.size == 0 or visual_seg.size == 0:
+        return
+    if visual_rgb.ndim != 3 or visual_rgb.shape[-1] != 3:
+        return
 
     seg_vis = np.zeros((*visual_seg.shape, 3), dtype=np.uint8)
-    seg_vis[visual_seg == int(getattr(scene.hand, "id", -9999))] = np.array([40, 80, 255], dtype=np.uint8)
-    seg_vis[visual_seg == int(getattr(scene.object_body, "id", -9999))] = np.array([255, 80, 40], dtype=np.uint8)
+    grasp_metadata = getattr(raw_obs, "grasp_metadata", {}) or {}
+    segmentation_ids = grasp_metadata.get("segmentation_ids", {})
+    hand_seg_id = segmentation_ids.get("hand", -9999)
+    object_seg_id = segmentation_ids.get("object", -9999)
+    seg_vis[visual_seg == int(hand_seg_id)] = np.array([40, 80, 255], dtype=np.uint8)
+    seg_vis[visual_seg == int(object_seg_id)] = np.array([255, 80, 40], dtype=np.uint8)
 
     cv2.imshow("visual_rgb_actual", cv2.cvtColor(visual_rgb, cv2.COLOR_RGB2BGR))
     cv2.imshow("visual_seg_actual", cv2.cvtColor(seg_vis, cv2.COLOR_RGB2BGR))

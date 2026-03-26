@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import cv2
 import numpy as np
 import pybullet as pb
 
@@ -11,69 +10,7 @@ from src.structures.observation import RawSensorObservation
 from src.utils.geometry import DEFAULT_TACTILE_CAMERA_TO_GEL_M, normalize_tactile_depth, pose_to_matrix
 
 
-def load_before_observation(sample_cfg: dict, scene_cfg: dict, grasp_pose) -> RawSensorObservation:
-    before_paths = sample_cfg["source"]["before_paths"]
-    tactile_rgb = np.stack(
-        [
-            cv2.cvtColor(cv2.imread(before_paths["tac_rgb_l"]), cv2.COLOR_BGR2RGB),
-            cv2.cvtColor(cv2.imread(before_paths["tac_rgb_r"]), cv2.COLOR_BGR2RGB),
-        ],
-        axis=0,
-    ).astype(np.uint8)
-    tactile_depth = np.stack(
-        [
-            cv2.imread(before_paths["tac_dep_l"], cv2.IMREAD_ANYDEPTH).astype(np.float32) / 10000.0,
-            cv2.imread(before_paths["tac_dep_r"], cv2.IMREAD_ANYDEPTH).astype(np.float32) / 10000.0,
-        ],
-        axis=0,
-    )
-    visual_rgb = cv2.cvtColor(cv2.imread(before_paths["vis_rgb"]), cv2.COLOR_BGR2RGB).astype(np.uint8)
-    visual_depth = cv2.imread(before_paths["vis_dep"], cv2.IMREAD_ANYDEPTH).astype(np.float32) / 1000.0
-    visual_seg = cv2.imread(before_paths["vis_seg"], cv2.IMREAD_ANYDEPTH).astype(np.int16) - 1
-
-    view_matrix = matrix_from_metadata(sample_cfg["camera"]["view_matrix"])
-    visual_proj_matrix = matrix_from_metadata(sample_cfg["camera"]["visual_proj_matrix"])
-    tactile_proj_matrix = matrix_from_metadata(sample_cfg["camera"]["tactile_proj_matrix"])
-    segmentation_ids = sample_cfg["source"].get("segmentation_ids", {"object": 1, "hand": 3})
-
-    left_pose = sample_cfg["grasping"]["left_gel_pose_world"]
-    right_pose = sample_cfg["grasping"]["right_gel_pose_world"]
-    contact_map = normalize_tactile_depth(tactile_depth)
-
-    return RawSensorObservation(
-        visual_data={
-            "rgb": visual_rgb,
-            "depth": visual_depth,
-            "seg": visual_seg,
-            "view_matrix": view_matrix,
-            "proj_matrix": visual_proj_matrix,
-        },
-        tactile_data={
-            "rgb": tactile_rgb,
-            "depth": tactile_depth,
-            "proj_matrix": tactile_proj_matrix,
-            "sensor_poses_world": {
-                "left": left_pose,
-                "right": right_pose,
-            },
-            "camera_distance_to_gel_m": DEFAULT_TACTILE_CAMERA_TO_GEL_M,
-            "contact_map": contact_map,
-            "contact_force": float(np.mean(contact_map)),
-        },
-        grasp_metadata={
-            "grasp_pose": grasp_pose,
-            "object_pose_world": sample_cfg["grasping"]["object_pose_world"],
-            "source_object_id": int(sample_cfg["source"]["object_id"]),
-            "source_global_id": int(sample_cfg["source"]["global_id"]),
-            "observation_stage": "before",
-            "segmentation_ids": segmentation_ids,
-            "gel_pose_world": {"left": left_pose, "right": right_pose},
-            "observation_valid": True,
-        },
-    )
-
-
-def capture_live_observation(
+def capture_scene_observation(
     sample_cfg: dict,
     scene_cfg: dict,
     tacto_sensor,
@@ -81,6 +18,7 @@ def capture_live_observation(
     object_body,
     client_id: int,
     current_grasp_pose,
+    stage: str,
 ) -> RawSensorObservation:
     gels_color, gels_depth = tacto_sensor.render()
     tactile_rgb = np.stack([np.asarray(color, dtype=np.uint8) for color in gels_color], axis=0)
@@ -150,7 +88,7 @@ def capture_live_observation(
             },
             "source_object_id": int(sample_cfg["source"]["object_id"]),
             "source_global_id": int(sample_cfg["source"]["global_id"]),
-            "observation_stage": "after",
+            "observation_stage": str(stage),
             "segmentation_ids": {"object": int(object_body.id), "hand": int(hand.id)},
             "gel_pose_world": {
                 "left": {"position": left_pose.position.tolist(), "quaternion": left_pose.quaternion.tolist()},
