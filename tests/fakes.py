@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import time
 
 import numpy as np
 import torch
@@ -15,7 +16,9 @@ from src.models.rl.actor_critic import ActorCritic
 from src.models.rl.policy_network import PolicyNetwork
 from src.models.rl.value_network import ValueNetwork
 from src.perception.factory import build_perception_stack
-from src.structures.action import GraspPose
+from src.structures.action import GraspPose, NormalizedAction
+from src.structures.info import StepInfo
+from src.structures.observation import Observation
 from src.structures.observation import RawSensorObservation
 
 
@@ -27,11 +30,11 @@ def make_env_cfg(seed: int = 7) -> dict:
             "rotation_bound": [0.1, 0.1, 0.1],
         },
         "reward": {
-            "weights": {"drop": 1.0, "stability": 0.5, "contact": 0.1},
-            "stability_alpha": 0.1,
-            "stability_clip": [-1.0, 1.0],
-            "contact_beta": 0.5,
-            "contact_clip": [-0.25, 0.25],
+            "stability_kappa": 1.0,
+            "contact_lambda_cover": 0.1,
+            "contact_lambda_edge": 0.1,
+            "contact_threshold_cover": 0.2,
+            "contact_threshold_edge": 0.2,
             "drop_success_reward": 1.0,
             "drop_failure_reward": -1.0,
         },
@@ -63,7 +66,7 @@ def make_perception_cfg() -> dict:
         "feature_extractor": {"freeze": True},
         "backbone": {"type": "dgcnn", "latent_dim": 32, "hidden_dim": 64},
         "predictor": {"type": "stability_head", "hidden_dim": 64},
-        "contact_semantics": {"tactile_threshold": 0.2, "edge_scale": 0.05},
+        "contact_semantics": {"tactile_threshold": 0.2},
     }
 
 
@@ -71,16 +74,14 @@ def make_calibration_cfg() -> dict:
     return {
         "init_a": 1.0,
         "init_b": 0.0,
-        "learning_rate": 0.05,
-        "l2_reg": 0.001,
-        "prior_var": 1.0,
-        "uncertainty_base": 0.05,
+        "lambda": 1.0,
     }
 
 
 def make_rl_cfg() -> dict:
     return {
         "device": "cpu",
+        "worker_policy_device": "cpu",
         "batch_episodes": 4,
         "gamma": 0.99,
         "lam": 0.95,
@@ -92,6 +93,7 @@ def make_rl_cfg() -> dict:
         "minibatch_size": 2,
         "max_grad_norm": 0.5,
         "normalize_advantages": True,
+        "max_collect_attempt_factor": 10,
         "num_envs": 1,
     }
 
@@ -101,6 +103,7 @@ def make_actor_critic_cfg() -> dict:
         "policy_hidden_dims": [64, 64],
         "value_hidden_dims": [64, 64],
         "initial_log_std": -0.5,
+        "policy_observation": {"preset": "current"},
     }
 
 
@@ -194,6 +197,112 @@ def build_test_env(seed: int = 7):
     return env, calibrator, env_cfg, perception_cfg, calibration_cfg
 
 
+def build_test_env_for_worker(
+    env_cfg: dict,
+    perception_cfg: dict,
+    calibration_cfg: dict,
+    worker_id: int | None = None,
+    num_workers: int | None = None,
+    worker_seed: int | None = None,
+):
+    del env_cfg, perception_cfg, calibration_cfg, worker_id, num_workers
+    env, _, _, _, _ = build_test_env(seed=int(worker_seed or 7))
+    return env
+
+
+class AsyncDelayEnv:
+    def __init__(
+        self,
+        worker_id: int,
+        calibration_cfg: dict,
+        delay_schedules: dict[int, list[float]] | None = None,
+        invalid_attempts: dict[int, int] | None = None,
+    ):
+        self.worker_id = int(worker_id)
+        self.calibrator = OnlineLogitCalibrator(calibration_cfg)
+        self.delay_schedules = delay_schedules or {}
+        self.invalid_attempts = dict(invalid_attempts or {})
+        self.episode_index = 0
+
+    def reset(self):
+        base = 0.1 + 0.05 * self.worker_id + 0.01 * self.episode_index
+        position = np.asarray([base, 0.0, 0.0], dtype=np.float32)
+        return Observation(
+            latent_feature=np.full(32, fill_value=base, dtype=np.float32),
+            contact_semantic=np.asarray([base, base / 2.0], dtype=np.float32),
+            grasp_pose=GraspPose(position=position, rotation=np.zeros(3, dtype=np.float32)),
+            raw_stability_logit=float(base),
+        )
+
+    def step(self, action: NormalizedAction):
+        if not isinstance(action, NormalizedAction):
+            action = NormalizedAction(value=np.asarray(action, dtype=np.float32))
+        delays = self.delay_schedules.get(self.worker_id, [])
+        delay = delays[self.episode_index] if self.episode_index < len(delays) else 0.0
+        if delay > 0.0:
+            time.sleep(delay)
+
+        invalid_budget = int(self.invalid_attempts.get(self.worker_id, 0))
+        is_valid = self.episode_index >= invalid_budget
+        logit_before = 0.1 + 0.05 * self.worker_id + 0.01 * self.episode_index
+        logit_after = logit_before + 0.05
+        next_obs = Observation(
+            latent_feature=np.full(32, fill_value=logit_after, dtype=np.float32),
+            contact_semantic=np.asarray([logit_after, logit_after / 2.0], dtype=np.float32),
+            grasp_pose=GraspPose(position=np.asarray([logit_after, 0.0, 0.0]), rotation=np.zeros(3, dtype=np.float32)),
+            raw_stability_logit=float(logit_after),
+        )
+        info = StepInfo(
+            drop_success=1 if is_valid else 0,
+            calibrated_stability_before=0.5,
+            calibrated_stability_after=0.6,
+            posterior_trace=2.0,
+            reward_drop=1.0 if is_valid else -1.0,
+            reward_stability=0.1,
+            reward_contact=0.0,
+            extra={
+                "reward_breakdown": None,
+                "raw_logit_before": logit_before,
+                "raw_logit_after": logit_after,
+                "legacy_drop_success_before": float(self.worker_id % 2),
+                "source_object_id": self.worker_id,
+                "source_global_id": self.episode_index,
+                "trial_metadata": {
+                    "valid_for_learning": bool(is_valid),
+                    "worker_id": self.worker_id,
+                    "episode_index": self.episode_index,
+                    "trial_status": "success" if is_valid else "system_invalid_observation",
+                    "failure_reason": None if is_valid else "synthetic_invalid_attempt",
+                },
+            },
+        )
+        self.episode_index += 1
+        return next_obs, float(1.0 if is_valid else -1.0), True, info
+
+    def sync_calibrator(self, state: dict) -> None:
+        self.calibrator.load_state(state)
+
+    def close(self) -> None:
+        return None
+
+
+def build_async_delay_env_for_worker(
+    env_cfg: dict,
+    perception_cfg: dict,
+    calibration_cfg: dict,
+    worker_id: int | None = None,
+    num_workers: int | None = None,
+    worker_seed: int | None = None,
+):
+    del perception_cfg, num_workers, worker_seed
+    return AsyncDelayEnv(
+        worker_id=int(worker_id or 0),
+        calibration_cfg=calibration_cfg,
+        delay_schedules=deepcopy(env_cfg.get("delay_schedules", {})),
+        invalid_attempts=deepcopy(env_cfg.get("invalid_attempts", {})),
+    )
+
+
 def build_test_actor_critic(obs_dim: int):
     actor_critic_cfg = make_actor_critic_cfg()
     policy_net = PolicyNetwork(obs_dim=obs_dim, action_dim=6, cfg=actor_critic_cfg)
@@ -204,12 +313,16 @@ def build_test_actor_critic(obs_dim: int):
 class DummyLogger:
     def __init__(self):
         self.records = []
+        self.episode_records = []
 
     def log_scalar(self, name: str, value: float, step: int):
         self.records.append((step, {name: value}))
 
     def log_dict(self, stats: dict, step: int):
         self.records.append((step, stats))
+
+    def log_episode_samples(self, samples: list[dict], step: int):
+        self.episode_records.append((step, samples))
 
     def info(self, msg: str):
         self.records.append(("info", msg))

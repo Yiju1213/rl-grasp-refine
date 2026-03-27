@@ -29,6 +29,7 @@ def main():
         "state": {
             "a": calibrator.a,
             "b": calibrator.b,
+            "posterior_trace": calibrator.posterior_trace(),
         },
     }
     print(json.dumps(payload, indent=2, sort_keys=True, default=float))

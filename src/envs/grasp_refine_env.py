@@ -11,6 +11,7 @@ from src.structures.observation import Observation
 from src.envs.pybullet_scene import PyBulletScene
 from src.envs.observation_builder import ObservationBuilder
 
+
 class GraspRefineEnv:
     """Single-step grasp refinement environment."""
 
@@ -45,7 +46,6 @@ class GraspRefineEnv:
         last_error: Exception | None = None
         for _ in range(self.max_reset_attempts):
             try:
-                print("[NEW ATTEMPT]")
                 self.sample_cfg = self._sample_initial_state()
                 self.scene.reset_scene(self.sample_cfg)
                 self.grasp_pose_before = self._get_initial_grasp_pose(self.sample_cfg)
@@ -77,30 +77,33 @@ class GraspRefineEnv:
         obs_after = self.observation_builder.build(raw_obs_after, refined_pose)
         trial_result = self.scene.run_grasp_trial()
 
-        calibrated_before, uncertainty_before = self.calibrator.predict(self.obs_before.raw_stability_logit)
-        calibrated_after, uncertainty_after = self.calibrator.predict(obs_after.raw_stability_logit)
+        calibrated_before = self.calibrator.predict(self.obs_before.raw_stability_logit)
+        calibrated_after = self.calibrator.predict(obs_after.raw_stability_logit)
+        posterior_trace = self.calibrator.posterior_trace()
         reward_breakdown = self.reward_manager.compute(
             drop_success=trial_result["drop_success"],
             calibrated_before=calibrated_before,
             calibrated_after=calibrated_after,
-            uncertainty_before=uncertainty_before,
-            uncertainty_after=uncertainty_after,
-            contact_before=self.obs_before.contact_semantic,
+            posterior_trace=posterior_trace,
             contact_after=obs_after.contact_semantic,
         )
         done = self.termination.is_done()
+        source_cfg = dict((self.sample_cfg or {}).get("source", {}))
         info = self._build_step_info(
             drop_success=trial_result["drop_success"],
             reward_breakdown=reward_breakdown,
             calibrated_before=calibrated_before,
             calibrated_after=calibrated_after,
-            uncertainty_before=uncertainty_before,
-            uncertainty_after=uncertainty_after,
+            posterior_trace=posterior_trace,
             extra={
                 "reward_breakdown": reward_breakdown,
                 "raw_logit_before": self.obs_before.raw_stability_logit,
                 "raw_logit_after": obs_after.raw_stability_logit,
+                "posterior_trace": posterior_trace,
                 "trial_metadata": trial_result.get("trial_metadata", {}),
+                "legacy_drop_success_before": source_cfg.get("legacy_drop_success"),
+                "source_object_id": source_cfg.get("object_id"),
+                "source_global_id": source_cfg.get("global_id"),
             },
         )
         self.obs_before = obs_after
@@ -143,16 +146,14 @@ class GraspRefineEnv:
         reward_breakdown,
         calibrated_before: float,
         calibrated_after: float,
-        uncertainty_before: float,
-        uncertainty_after: float,
+        posterior_trace: float,
         extra: dict,
     ) -> StepInfo:
         return StepInfo(
             drop_success=int(drop_success),
             calibrated_stability_before=float(calibrated_before),
             calibrated_stability_after=float(calibrated_after),
-            uncertainty_before=float(uncertainty_before),
-            uncertainty_after=float(uncertainty_after),
+            posterior_trace=float(posterior_trace),
             reward_drop=float(reward_breakdown.drop),
             reward_stability=float(reward_breakdown.stability),
             reward_contact=float(reward_breakdown.contact),

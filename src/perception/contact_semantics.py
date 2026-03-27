@@ -3,10 +3,10 @@ from __future__ import annotations
 import numpy as np
 
 
-def _extract_tactile_signal(raw_obs):
+def _extract_contact_signal(raw_obs):
     tactile = raw_obs.tactile_data
     if isinstance(tactile, dict):
-        return tactile.get("contact_map", tactile.get("depth", tactile.get("rgb")))
+        return tactile.get("contact_map", tactile.get("depth"))
     return tactile
 
 
@@ -17,46 +17,74 @@ def _signal_to_scalar_map(signal) -> np.ndarray:
     return signal_array
 
 
+def _to_sensor_maps(signal) -> np.ndarray:
+    scalar_map = _signal_to_scalar_map(signal)
+    if scalar_map.ndim == 0:
+        return scalar_map.reshape(1, 1, 1)
+    if scalar_map.ndim == 1:
+        return scalar_map.reshape(1, 1, -1)
+    if scalar_map.ndim == 2:
+        return scalar_map.reshape(1, *scalar_map.shape)
+    return scalar_map.reshape(-1, scalar_map.shape[-2], scalar_map.shape[-1])
+
+
+def _normalized_boundary_distance(height: int, width: int) -> np.ndarray:
+    if height <= 0 or width <= 0:
+        return np.zeros((0, 0), dtype=np.float32)
+
+    y_coords = np.arange(height, dtype=np.float32)[:, None]
+    x_coords = np.arange(width, dtype=np.float32)[None, :]
+    if height == 1 and width == 1:
+        boundary_distance = np.zeros((1, 1), dtype=np.float32)
+    elif height == 1:
+        boundary_distance = np.minimum(x_coords, float(width - 1) - x_coords)
+    elif width == 1:
+        boundary_distance = np.minimum(y_coords, float(height - 1) - y_coords)
+    else:
+        boundary_distance = np.minimum(
+            np.minimum(y_coords, float(height - 1) - y_coords),
+            np.minimum(x_coords, float(width - 1) - x_coords),
+        )
+
+    max_distance = float(np.max(boundary_distance))
+    if max_distance <= 0.0:
+        return np.zeros((height, width), dtype=np.float32)
+    return (boundary_distance / max_distance).astype(np.float32)
+
+
 class ContactSemanticsExtractor:
-    """Extract a compact contact semantic vector."""
+    """Extract paper-aligned contact semantics from tactile maps."""
 
     def __init__(self, cfg: dict):
         self.tactile_threshold = float(cfg.get("tactile_threshold", 0.2))
-        self.edge_scale = float(cfg.get("edge_scale", 0.05))
 
     def extract(self, raw_obs) -> np.ndarray:
-        coverage_ratio = self.compute_coverage_ratio(raw_obs)
-        edge_proximity = self.compute_edge_proximity(raw_obs)
-        return np.asarray([coverage_ratio, edge_proximity], dtype=np.float32)
-
-    def compute_coverage_ratio(self, raw_obs) -> float:
-        tactile_signal = _extract_tactile_signal(raw_obs)
+        tactile_signal = _extract_contact_signal(raw_obs)
         if tactile_signal is None:
-            return 0.0
-        # TODO: Replace this placeholder with the actual tactile coverage metric
-        # computed from calibrated tac RGB/depth observations.
-        contact_array = _signal_to_scalar_map(tactile_signal).reshape(-1)
-        if contact_array.size == 0:
-            return 0.0
-        active = np.abs(contact_array) > self.tactile_threshold
-        return float(np.mean(active))
+            return np.zeros(2, dtype=np.float32)
 
-    def compute_edge_proximity(self, raw_obs) -> float:
-        tactile_signal = _extract_tactile_signal(raw_obs)
-        if tactile_signal is None:
-            return 0.0
-        # TODO: Replace this placeholder with a tactile edge metric derived from
-        # tac RGB/depth geometry instead of visual segmentation.
-        scalar_map = _signal_to_scalar_map(tactile_signal)
-        if scalar_map.ndim == 2:
-            scalar_map = scalar_map[None, ...]
-        if scalar_map.size == 0:
-            return 0.0
+        sensor_maps = _to_sensor_maps(tactile_signal)
+        valid_points = 0
+        active_points = 0
+        edge_distance_values: list[np.ndarray] = []
 
-        sensor_maps = scalar_map.reshape(scalar_map.shape[0], -1)
-        if sensor_maps.shape[0] == 1:
-            active = np.abs(sensor_maps[0]) > self.tactile_threshold
-            return float(np.mean(active))
+        for sensor_map in sensor_maps:
+            valid_mask = np.isfinite(sensor_map)
+            if not np.any(valid_mask):
+                continue
+            active_mask = valid_mask & (sensor_map > self.tactile_threshold)
+            valid_points += int(np.sum(valid_mask))
+            active_points += int(np.sum(active_mask))
+            if np.any(active_mask):
+                normalized_distance = _normalized_boundary_distance(sensor_map.shape[0], sensor_map.shape[1])
+                edge_distance_values.append(normalized_distance[active_mask].astype(np.float32).reshape(-1))
 
-        active_ratio = [float(np.mean(np.abs(sensor_map) > self.tactile_threshold)) for sensor_map in sensor_maps[:2]]
-        return float(np.clip(abs(active_ratio[0] - active_ratio[1]), 0.0, 1.0))
+        if valid_points == 0:
+            return np.zeros(2, dtype=np.float32)
+
+        t_cover = float(active_points / valid_points)
+        if active_points == 0:
+            t_edge = 0.0
+        else:
+            t_edge = float(np.mean(np.concatenate(edge_distance_values, axis=0)))
+        return np.asarray([t_cover, t_edge], dtype=np.float32)

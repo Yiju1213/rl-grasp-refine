@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Tuple
 
 
 class BaseCalibrator(ABC):
     """Base interface for online calibration."""
 
     @abstractmethod
-    def predict(self, logits) -> Tuple[float, float]:
+    def predict(self, logits):
         raise NotImplementedError
 
     @abstractmethod
     def update(self, logits, labels) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def posterior_trace(self) -> float:
         raise NotImplementedError
 
     @abstractmethod

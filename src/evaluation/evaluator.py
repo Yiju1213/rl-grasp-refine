@@ -19,13 +19,14 @@ class Evaluator:
         self.env = env
         self.actor_critic = actor_critic
         self.cfg = cfg
+        self.observation_spec = getattr(actor_critic, "observation_spec", None)
 
     def run(self, num_episodes: int) -> dict:
         results = []
         device = next(self.actor_critic.parameters()).device
         for _ in range(num_episodes):
             obs = self.env.reset()
-            obs_tensor = observation_to_tensor(obs).to(device)
+            obs_tensor = observation_to_tensor(obs, spec=self.observation_spec).to(device)
             with np.errstate(all="ignore"):
                 action_mean, _ = self.actor_critic.policy_net(obs_tensor)
             action = action_mean.squeeze(0).detach().cpu().numpy()

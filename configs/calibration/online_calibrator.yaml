@@ -7,14 +7,7 @@ init_a: 1.0
 # b 的初始值。和 init_a 一起决定校准前的默认映射。
 init_b: 0.0
 
-# 在线更新时的步长。learning_rate 越大，校准参数更新越激进。
-learning_rate: 0.05
-
-# L2 正则强度。用于抑制 a / b 在小 batch 上过度摆动。
-l2_reg: 0.001
-
-# 先验方差。会影响 posterior_cov 的初始规模，也会进入 Hessian 近似。
-prior_var: 1.0
-
-# 在 uncertainty 计算结果上额外加的常数底噪，避免不确定度过小。
-uncertainty_base: 0.05
+# logistic calibration 的 ridge / damping 系数。
+# 论文 appendix 对应：L(theta) + lambda / 2 * ||theta||^2，
+# posterior_cov = (H + lambda I)^(-1)。
+lambda: 1.0

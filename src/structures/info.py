@@ -11,8 +11,7 @@ class StepInfo:
     drop_success: int
     calibrated_stability_before: float
     calibrated_stability_after: float
-    uncertainty_before: float
-    uncertainty_after: float
+    posterior_trace: float
     reward_drop: float
     reward_stability: float
     reward_contact: float

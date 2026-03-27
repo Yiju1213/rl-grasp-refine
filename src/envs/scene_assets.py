@@ -44,7 +44,6 @@ def create_tacto_sensor(asset_paths: SceneAssetPaths, cfg: dict, hand, client_id
         raise FileNotFoundError(f"Missing or unreadable TACTO background: {asset_paths.tacto_background}")
     if not asset_paths.tacto_config.exists():
         raise FileNotFoundError(f"Missing TACTO config: {asset_paths.tacto_config}")
-    print("init tacto")
     tacto_sensor = tacto.Sensor(
         width=int(cfg.get("tacto_width", 240)),
         height=int(cfg.get("tacto_height", 320)),
@@ -54,7 +53,6 @@ def create_tacto_sensor(asset_paths: SceneAssetPaths, cfg: dict, hand, client_id
         show_depth=False,
         cid=client_id,
     )
-    print("add cam")
     tacto_sensor.add_camera(hand.id, hand.gsmini_joint_ids)
     return tacto_sensor
 

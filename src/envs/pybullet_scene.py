@@ -418,14 +418,11 @@ class PyBulletScene:
         }
 
         try:
-            print("run hand reset")
             self.hand.reset()
             self._set_object_pose(object_pose_world)
             self._recreate_object_constraint(object_pose_world["position"])
             self._set_hand_pose(hand_pose_world)
-            print("simulation start")
             pb.stepSimulation(physicsClientId=self.client_id)
-            print("hand pos ctl")
             self.hand.finger_position_control(GRIPPER_CLOSE_WIDTH)
             contact_reached = False
             for step in range(close_steps):
@@ -446,7 +443,6 @@ class PyBulletScene:
                     raise_on_failure=raise_on_failure,
                     runtime_message="Failed to reconstruct grasp contact during reset.",
                 )
-            print("hand eff ctl")
             self.hand.finger_position_control(GRIPPER_CLOSE_WIDTH, grip_force)
             effort_reached = False
             for step in range(effort_steps):
@@ -511,7 +507,6 @@ class PyBulletScene:
             self._request_gui_render()
             return result
         except Exception as exc:
-            print(f"[RESET special Failure] {exc}")
             if raise_on_failure:
                 raise RuntimeError(str(exc)) from exc
             result["trial_status"] = "system_sim_error"
@@ -537,7 +532,6 @@ class PyBulletScene:
             }
         )
         if raise_on_failure:
-            print(f"[RESET Failure] {runtime_message}")
             raise RuntimeError(runtime_message)
         return result
 

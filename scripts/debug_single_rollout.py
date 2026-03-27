@@ -22,7 +22,7 @@ def main():
     actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
 
     obs_before = env.reset()
-    obs_tensor = observation_to_tensor(obs_before)
+    obs_tensor = observation_to_tensor(obs_before, spec=getattr(actor_critic, "observation_spec", None))
     action_tensor, _, _, _ = actor_critic.act(obs_tensor, deterministic=True)
     action = action_tensor.squeeze(0).detach().cpu().numpy()
     obs_after, reward, done, info = env.step(action)
@@ -31,12 +31,11 @@ def main():
         "after_logit": obs_after.raw_stability_logit,
         "calibrated_before": info.calibrated_stability_before,
         "calibrated_after": info.calibrated_stability_after,
-        "uncertainty_before": info.uncertainty_before,
-        "uncertainty_after": info.uncertainty_after,
+        "posterior_trace": info.posterior_trace,
         "reward": reward,
         "reward_breakdown": info.extra["reward_breakdown"].as_dict(),
         "drop_success": info.drop_success,
-        "calibrator_state": calibrator.get_state()["a"],
+        "calibrator_state": calibrator.get_state(),
         "done": done,
     }
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import numpy as np
 import torch
 
 from src.rl.advantage import compute_returns_and_advantages
-from src.rl.vec_env_wrapper import DummyVecEnvWrapper
 from src.structures.action import NormalizedAction
 from src.utils.tensor_utils import action_tensor_to_numpy, observation_to_tensor
 
@@ -23,6 +23,7 @@ class Trainer:
         calibrator,
         logger,
         cfg: dict,
+        collector=None,
     ):
         self.env = env
         self.actor_critic = actor_critic
@@ -31,18 +32,29 @@ class Trainer:
         self.calibrator = calibrator
         self.logger = logger
         self.cfg = cfg
+        self.collector = collector
+        self.observation_spec = getattr(actor_critic, "observation_spec", None)
         self.gamma = float(cfg.get("gamma", 0.99))
         self.lam = float(cfg.get("lam", 0.95))
         self.batch_episodes = int(cfg.get("batch_episodes", 32))
         self.max_collect_attempt_factor = int(cfg.get("max_collect_attempt_factor", 10))
         self.device = torch.device(cfg.get("device", "cpu"))
         self.iteration = 0
+        self._last_collection_report: dict[str, Any] = {
+            "attempts_total": 0,
+            "valid_episodes": 0,
+            "attempt_summaries": [],
+            "rollout_version": -1,
+        }
 
     def train(self, num_iterations: int):
         history: list[dict[str, Any]] = []
         for iteration in range(num_iterations):
             self.iteration = iteration
-            self.collect_rollout(self.batch_episodes)
+            iteration_start = time.perf_counter()
+            collect_start = iteration_start
+            collection_report = self.collect_rollout(self.batch_episodes)
+            collect_wall_s = time.perf_counter() - collect_start
             batch = self.buffer.get_all()
             returns, advantages = compute_returns_and_advantages(
                 rewards=batch["rewards"],
@@ -53,27 +65,72 @@ class Trainer:
             )
             batch["returns"] = returns
             batch["advantages"] = advantages
+            update_start = time.perf_counter()
             training_stats = self.agent.update(batch)
-            self.update_calibrator()
-            rollout_stats = self._summarize_rollout(batch)
-            stats = {**training_stats, **rollout_stats}
+            calibrator_post_state = self.update_calibrator(batch)
+            update_wall_s = time.perf_counter() - update_start
+            iteration_wall_s = time.perf_counter() - iteration_start
+            rollout_stats = self._summarize_rollout(
+                batch=batch,
+                collection_report=collection_report,
+                calibrator_post_state=calibrator_post_state,
+                timing_stats={
+                    "timing/collect_wall_s": collect_wall_s,
+                    "timing/update_wall_s": update_wall_s,
+                    "timing/iteration_wall_s": iteration_wall_s,
+                },
+            )
+            stats = {**rollout_stats, **training_stats}
             self.log_iteration(stats)
+            self._log_episode_samples(batch)
             history.append(stats)
             self.buffer.clear()
         return history
 
-    def collect_rollout(self, num_episodes: int):
+    def collect_rollout(self, num_episodes: int) -> dict[str, Any]:
         self.buffer.clear()
+        if self.collector is not None:
+            report = self._collect_rollout_async(num_episodes)
+            self._last_collection_report = report
+            return report
         self._sync_calibrator_to_env()
-        #TODO 可以用单个函数同时处理单环境和多环境的rollout收集，避免代码重复
-        if isinstance(self.env, DummyVecEnvWrapper):
-            self._collect_rollout_vec(num_episodes)
-        else:
-            self._collect_rollout_single(num_episodes)
+        report = self._collect_rollout_single(num_episodes)
+        self._last_collection_report = report
+        return report
 
-    def _collect_rollout_single(self, num_episodes: int) -> None:
+    def _collect_rollout_async(self, num_episodes: int) -> dict[str, Any]:
+        actor_state = {key: value.detach().cpu() for key, value in self.actor_critic.state_dict().items()}
+        payload = self.collector.collect_batch(
+            target_valid_episodes=num_episodes,
+            actor_state=actor_state,
+            calibrator_state=self.calibrator.get_state(),
+            obs_spec=self.observation_spec,
+            rollout_version=int(self.iteration),
+        )
+        for transition in payload["transitions"]:
+            self.buffer.add(
+                obs=transition["obs"],
+                action=NormalizedAction(value=transition["action"]),
+                reward=transition["reward"],
+                next_obs=transition["next_obs"],
+                done=transition["done"],
+                log_prob=transition["log_prob"],
+                value=transition["value"],
+                info=transition["info"],
+                raw_logit_before=transition["raw_logit_before"],
+                raw_logit_after=transition["raw_logit_after"],
+            )
+        return {
+            "attempts_total": int(payload["attempts_total"]),
+            "valid_episodes": int(payload["valid_episodes"]),
+            "attempt_summaries": list(payload.get("attempt_summaries", [])),
+            "rollout_version": int(payload["rollout_version"]),
+        }
+
+    def _collect_rollout_single(self, num_episodes: int) -> dict[str, Any]:
         episodes_collected = 0
         attempts = 0
+        attempt_summaries: list[dict[str, Any]] = []
         max_attempts = max(num_episodes * self.max_collect_attempt_factor, num_episodes)
         while episodes_collected < num_episodes:
             attempts += 1
@@ -82,12 +139,15 @@ class Trainer:
                     f"Exceeded max rollout collection attempts ({max_attempts}) while collecting valid episodes."
                 )
             obs = self.env.reset()
-            obs_tensor = observation_to_tensor(obs).to(self.device)
+            obs_tensor = observation_to_tensor(obs, spec=self.observation_spec).to(self.device)
+            policy_start = time.perf_counter()
             with torch.no_grad():
                 action_tensor, log_prob, value, _ = self.actor_critic.act(obs_tensor)
+            policy_forward_s = time.perf_counter() - policy_start
             action_np = action_tensor_to_numpy(action_tensor).reshape(-1)
             next_obs, reward, done, info = self.env.step(NormalizedAction(value=action_np))
             trial_metadata = info.extra.get("trial_metadata", {})
+            attempt_summaries.append(self._build_attempt_summary(info=info, policy_forward_s=policy_forward_s, worker_id=0))
             if not bool(trial_metadata.get("valid_for_learning", True)):
                 continue
             self.buffer.add(
@@ -103,49 +163,21 @@ class Trainer:
                 raw_logit_after=info.extra["raw_logit_after"],
             )
             episodes_collected += 1
+        return {
+            "attempts_total": attempts,
+            "valid_episodes": episodes_collected,
+            "attempt_summaries": attempt_summaries,
+            "rollout_version": int(self.iteration),
+        }
 
-    def _collect_rollout_vec(self, num_episodes: int) -> None:
-        episodes_collected = 0
-        attempts = 0
-        max_attempts = max(num_episodes * self.max_collect_attempt_factor, num_episodes)
-        while episodes_collected < num_episodes:
-            attempts += len(self.env.envs) if hasattr(self.env, "envs") else 1
-            if attempts > max_attempts:
-                raise RuntimeError(
-                    f"Exceeded max rollout collection attempts ({max_attempts}) while collecting valid episodes."
-                )
-            obs_batch = self.env.reset()
-            obs_tensor = observation_to_tensor(obs_batch).to(self.device)
-            with torch.no_grad():
-                action_tensor, log_prob, value, _ = self.actor_critic.act(obs_tensor)
-            actions_np = action_tensor_to_numpy(action_tensor)
-            next_obs_batch, rewards, dones, infos = self.env.step(actions_np)
-            remaining = num_episodes - episodes_collected
-            keep = min(remaining, len(obs_batch))
-            for index in range(keep):
-                trial_metadata = infos[index].extra.get("trial_metadata", {})
-                if not bool(trial_metadata.get("valid_for_learning", True)):
-                    continue
-                action = NormalizedAction(value=actions_np[index])
-                self.buffer.add(
-                    obs=obs_batch[index],
-                    action=action,
-                    reward=float(rewards[index]),
-                    next_obs=next_obs_batch[index],
-                    done=bool(dones[index]),
-                    log_prob=float(log_prob[index].cpu().item()),
-                    value=float(value[index].cpu().item()),
-                    info=infos[index],
-                    raw_logit_before=infos[index].extra["raw_logit_before"],
-                    raw_logit_after=infos[index].extra["raw_logit_after"],
-                )
-                episodes_collected += 1
-
-    def update_calibrator(self):
-        batch = self.buffer.get_all()
+    def update_calibrator(self, batch: dict | None = None) -> dict[str, Any]:
+        batch = self.buffer.get_all() if batch is None else batch
+        if batch["raw_logit_after"].size == 0:
+            return self.calibrator.get_state()
         logits = batch["raw_logit_after"]
         labels = np.asarray([info.drop_success for info in batch["infos"]], dtype=np.float32)
         self.calibrator.update(logits, labels)
+        return self.calibrator.get_state()
 
     def _sync_calibrator_to_env(self) -> None:
         get_state = getattr(self.calibrator, "get_state", None)
@@ -158,13 +190,198 @@ class Trainer:
         self.logger.log_dict(stats, step=self.iteration)
         self.logger.info(f"Iteration {self.iteration}: {stats}")
 
-    @staticmethod
-    def _summarize_rollout(batch: dict) -> dict[str, float]:
-        rewards = batch["rewards"]
+    def _log_episode_samples(self, batch: dict) -> None:
+        if not bool(getattr(self.logger, "sample_metrics_enabled", False)):
+            return
+        log_fn = getattr(self.logger, "log_episode_samples", None)
+        if not callable(log_fn):
+            return
+        samples = []
         infos = batch["infos"]
-        success_rate = float(np.mean([info.drop_success for info in infos])) if infos else 0.0
+        for obs, next_obs, action, reward, info in zip(
+            batch["obs"],
+            batch["next_obs"],
+            batch["actions"],
+            batch["rewards"],
+            infos,
+        ):
+            reward_breakdown = info.extra.get("reward_breakdown")
+            reward_payload = (
+                reward_breakdown.as_dict()
+                if reward_breakdown is not None
+                else {
+                    "total": float(reward),
+                    "drop": float(info.reward_drop),
+                    "stability": float(info.reward_stability),
+                    "contact": float(info.reward_contact),
+                }
+            )
+            samples.append(
+                {
+                    "contact": {
+                        "t_cover_before": float(obs.contact_semantic[0]),
+                        "t_cover_after": float(next_obs.contact_semantic[0]),
+                        "t_edge_before": float(obs.contact_semantic[1]),
+                        "t_edge_after": float(next_obs.contact_semantic[1]),
+                    },
+                    "calibrator": {
+                        "raw_logit_before": float(info.extra["raw_logit_before"]),
+                        "raw_logit_after": float(info.extra["raw_logit_after"]),
+                        "prob_before": float(info.calibrated_stability_before),
+                        "prob_after": float(info.calibrated_stability_after),
+                        "posterior_trace_snapshot": float(info.posterior_trace),
+                    },
+                    "reward": reward_payload,
+                    "outcome": {
+                        "drop_success_after_live": int(info.drop_success),
+                        "legacy_drop_success_before": info.extra.get("legacy_drop_success_before"),
+                        "trial_status": info.extra.get("trial_metadata", {}).get("trial_status"),
+                    },
+                    "action": {
+                        "value": np.asarray(action, dtype=np.float32).tolist(),
+                        "l2": float(np.linalg.norm(action)),
+                        "abs_mean": float(np.mean(np.abs(action))),
+                        "reward_total": float(reward),
+                    },
+                }
+            )
+        log_fn(samples, step=self.iteration)
+
+    @staticmethod
+    def _build_attempt_summary(info, *, policy_forward_s: float, worker_id: int) -> dict[str, Any]:
+        trial_metadata = info.extra.get("trial_metadata", {})
         return {
-            "average_reward": float(np.mean(rewards)) if rewards.size else 0.0,
-            "success_rate": success_rate,
-            "num_episodes": float(len(infos)),
+            "valid_for_learning": bool(trial_metadata.get("valid_for_learning", True)),
+            "trial_status": str(trial_metadata.get("trial_status", "unknown")),
+            "failure_reason": trial_metadata.get("failure_reason"),
+            "drop_success_after_live": int(info.drop_success),
+            "legacy_drop_success_before": info.extra.get("legacy_drop_success_before"),
+            "policy_forward_s": float(policy_forward_s),
+            "worker_id": int(worker_id),
         }
+
+    @staticmethod
+    def _summarize_rollout(
+        *,
+        batch: dict,
+        collection_report: dict[str, Any],
+        calibrator_post_state: dict[str, Any],
+        timing_stats: dict[str, float],
+    ) -> dict[str, float]:
+        rewards = np.asarray(batch["rewards"], dtype=np.float32)
+        infos = list(batch["infos"])
+        actions = np.asarray(batch["actions"], dtype=np.float32)
+        attempt_summaries = list(collection_report.get("attempt_summaries", []))
+
+        def _mean(values) -> float:
+            arr = np.asarray(values, dtype=np.float32)
+            return float(np.mean(arr)) if arr.size else 0.0
+
+        def _std(values) -> float:
+            arr = np.asarray(values, dtype=np.float32)
+            return float(np.std(arr)) if arr.size else 0.0
+
+        def _rate(values) -> float:
+            arr = np.asarray(values, dtype=np.float32)
+            return float(np.mean(arr)) if arr.size else 0.0
+
+        def _finite_mean(values) -> float:
+            arr = np.asarray(values, dtype=np.float32)
+            if arr.size == 0:
+                return 0.0
+            arr = arr[np.isfinite(arr)]
+            return float(np.mean(arr)) if arr.size else 0.0
+
+        if infos:
+            t_before = np.stack([obs.contact_semantic for obs in batch["obs"]], axis=0)
+            t_after = np.stack([obs.contact_semantic for obs in batch["next_obs"]], axis=0)
+            prob_before = np.asarray([info.calibrated_stability_before for info in infos], dtype=np.float32)
+            prob_after = np.asarray([info.calibrated_stability_after for info in infos], dtype=np.float32)
+            prob_delta = prob_after - prob_before
+            reward_drop = np.asarray([info.reward_drop for info in infos], dtype=np.float32)
+            reward_stability = np.asarray([info.reward_stability for info in infos], dtype=np.float32)
+            reward_contact = np.asarray([info.reward_contact for info in infos], dtype=np.float32)
+            drop_success = np.asarray([info.drop_success for info in infos], dtype=np.float32)
+            dataset_before = np.asarray(
+                [info.extra.get("legacy_drop_success_before", np.nan) for info in infos],
+                dtype=np.float32,
+            )
+            raw_logit_before = np.asarray(batch["raw_logit_before"], dtype=np.float32)
+            raw_logit_after = np.asarray(batch["raw_logit_after"], dtype=np.float32)
+            posterior_trace_snapshot = np.asarray([info.posterior_trace for info in infos], dtype=np.float32)
+        else:
+            t_before = np.zeros((0, 2), dtype=np.float32)
+            t_after = np.zeros((0, 2), dtype=np.float32)
+            prob_before = np.zeros((0,), dtype=np.float32)
+            prob_after = np.zeros((0,), dtype=np.float32)
+            prob_delta = np.zeros((0,), dtype=np.float32)
+            reward_drop = np.zeros((0,), dtype=np.float32)
+            reward_stability = np.zeros((0,), dtype=np.float32)
+            reward_contact = np.zeros((0,), dtype=np.float32)
+            drop_success = np.zeros((0,), dtype=np.float32)
+            dataset_before = np.zeros((0,), dtype=np.float32)
+            raw_logit_before = np.zeros((0,), dtype=np.float32)
+            raw_logit_after = np.zeros((0,), dtype=np.float32)
+            posterior_trace_snapshot = np.zeros((0,), dtype=np.float32)
+
+        total_attempts = max(int(collection_report.get("attempts_total", 0)), 1)
+        status_counts: dict[str, int] = {}
+        system_invalid_count = 0
+        policy_forward_values = []
+        for summary in attempt_summaries:
+            status = str(summary.get("trial_status", "unknown"))
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if status.startswith("system_"):
+                system_invalid_count += 1
+            policy_forward_values.append(float(summary.get("policy_forward_s", 0.0)))
+
+        eps = 1e-6
+        clipped_prob_after = np.clip(prob_after, eps, 1.0 - eps)
+        brier = np.mean((prob_after - drop_success) ** 2) if prob_after.size else 0.0
+        bce = np.mean(-(drop_success * np.log(clipped_prob_after) + (1.0 - drop_success) * np.log(1.0 - clipped_prob_after))) if prob_after.size else 0.0
+
+        stats = {
+            "collection/attempts_total": float(collection_report.get("attempts_total", 0)),
+            "collection/valid_episodes": float(collection_report.get("valid_episodes", 0)),
+            "collection/valid_rate": float(collection_report.get("valid_episodes", 0)) / float(total_attempts),
+            "outcome/success_rate_live_after": _rate(drop_success),
+            "outcome/success_rate_dataset_before": _finite_mean(dataset_before),
+            "outcome/success_lift_vs_dataset": _rate(drop_success) - _finite_mean(dataset_before),
+            "outcome/system_invalid_rate": float(system_invalid_count) / float(total_attempts),
+            "reward/total_mean": _mean(rewards),
+            "reward/total_std": _std(rewards),
+            "reward/drop_mean": _mean(reward_drop),
+            "reward/stability_mean": _mean(reward_stability),
+            "reward/contact_mean": _mean(reward_contact),
+            "contact/t_cover_before_mean": _mean(t_before[:, 0]) if t_before.size else 0.0,
+            "contact/t_cover_before_std": _std(t_before[:, 0]) if t_before.size else 0.0,
+            "contact/t_cover_after_mean": _mean(t_after[:, 0]) if t_after.size else 0.0,
+            "contact/t_cover_after_std": _std(t_after[:, 0]) if t_after.size else 0.0,
+            "contact/t_cover_delta_mean": _mean(t_after[:, 0] - t_before[:, 0]) if t_before.size else 0.0,
+            "contact/t_edge_before_mean": _mean(t_before[:, 1]) if t_before.size else 0.0,
+            "contact/t_edge_before_std": _std(t_before[:, 1]) if t_before.size else 0.0,
+            "contact/t_edge_after_mean": _mean(t_after[:, 1]) if t_after.size else 0.0,
+            "contact/t_edge_after_std": _std(t_after[:, 1]) if t_after.size else 0.0,
+            "contact/t_edge_delta_mean": _mean(t_after[:, 1] - t_before[:, 1]) if t_before.size else 0.0,
+            "calibrator/raw_logit_before_mean": _mean(raw_logit_before),
+            "calibrator/raw_logit_after_mean": _mean(raw_logit_after),
+            "calibrator/prob_before_mean": _mean(prob_before),
+            "calibrator/prob_after_mean": _mean(prob_after),
+            "calibrator/prob_delta_mean": _mean(prob_delta),
+            "calibrator/prob_delta_std": _std(prob_delta),
+            "calibrator/prob_delta_positive_rate": _rate(prob_delta > 0.0),
+            "calibrator/posterior_trace_snapshot": _mean(posterior_trace_snapshot),
+            "calibrator/posterior_trace_post_update": float(np.trace(np.asarray(calibrator_post_state["posterior_cov"]))),
+            "calibrator/param_a": float(calibrator_post_state["a"]),
+            "calibrator/param_b": float(calibrator_post_state["b"]),
+            "calibrator/after_brier": float(brier),
+            "calibrator/after_bce": float(bce),
+            "action/abs_mean": _mean(np.abs(actions)),
+            "action/l2_mean": _mean(np.linalg.norm(actions, axis=1)) if actions.size else 0.0,
+            "action/saturation_rate": _rate(np.abs(actions) >= 0.999) if actions.size else 0.0,
+            "timing/policy_forward_s_mean": _mean(policy_forward_values),
+            **timing_stats,
+        }
+        for status, count in sorted(status_counts.items()):
+            stats[f"outcome/trial_status_{status}_rate"] = float(count) / float(total_attempts)
+        return stats

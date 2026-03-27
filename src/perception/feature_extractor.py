@@ -35,6 +35,3 @@ class FeatureExtractor:
         return PerceptionResult(
             latent_feature=np.asarray(latent.squeeze(0).detach().cpu().numpy(), dtype=np.float32),
         )
-
-    def extract(self, raw_obs):
-        return self.encode(raw_obs).latent_feature.copy()

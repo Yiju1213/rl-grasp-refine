@@ -5,8 +5,12 @@
 # - scripts/train.py
 # 直接消费。
 
-# 训练设备。当前默认 cpu。
-device: cpu
+# 训练设备。主进程 PPO update 默认走 GPU。
+device: cuda:0
+
+# worker 侧 policy/value 推理设备。
+# 未显式设置时，collector 会回退到 device。
+worker_policy_device: cuda:0
 
 # 每个 iteration 要收集多少个 episode。
 # 在 single-step 设定下，也可以理解为每轮 PPO update 的样本数。
@@ -43,6 +47,8 @@ max_grad_norm: 0.5
 # 是否对 advantage 做标准化。
 normalize_advantages: true
 
-# 预留的 env 数量。
-# 当前 >1 时会启用 DummyVecEnvWrapper，但仍然只是同步 dummy vec env，不是真并行。
+# rollout 收集时，最多允许尝试多少倍的无效 episode。
+max_collect_attempt_factor: 10
+
+# worker 数量。>1 时会启用 spawn 型异步 rollout collector。
 num_envs: 1

@@ -2,20 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-import numpy as np
 import torch
 
-from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.rl.ppo_agent import PPOAgent
 from src.rl.rollout_buffer import RolloutBuffer
 from src.rl.trainer import Trainer
-from src.rl.vec_env_wrapper import DummyVecEnvWrapper
 from src.utils.tensor_utils import observation_to_tensor
 from tests.fakes import (
     DummyLogger,
     build_test_actor_critic,
     build_test_env,
-    make_calibration_cfg,
     make_rl_cfg,
 )
 
@@ -52,67 +48,38 @@ class TestSingleStepPipeline(unittest.TestCase):
         )
         history = trainer.train(num_iterations=1)
         self.assertEqual(len(history), 1)
-        self.assertIn("average_reward", history[0])
+        for key in (
+            "collection/attempts_total",
+            "collection/valid_episodes",
+            "outcome/success_rate_live_after",
+            "reward/total_mean",
+            "contact/t_cover_after_mean",
+            "calibrator/prob_after_mean",
+            "ppo/policy_loss",
+            "ppo/clip_fraction",
+            "ppo/grad_norm",
+            "timing/iteration_wall_s",
+        ):
+            self.assertIn(key, history[0])
 
-    def test_dummy_vec_env_wrapper_shapes(self):
-        env_fns = [lambda seed=seed: build_test_env(seed=seed)[0] for seed in (1, 2)]
-        vec_env = DummyVecEnvWrapper(env_fns)
-        observations = vec_env.reset()
-        self.assertEqual(len(observations), 2)
-        actions = [torch.zeros(6).numpy(), torch.zeros(6).numpy()]
-        next_obs, rewards, dones, infos = vec_env.step(actions)
-        self.assertEqual(len(next_obs), 2)
-        self.assertEqual(rewards.shape, (2,))
-        self.assertEqual(dones.shape, (2,))
-        self.assertEqual(len(infos), 2)
-
-    def test_dummy_vec_env_wrapper_syncs_calibrator_state(self):
-        env_fns = [lambda seed=seed: build_test_env(seed=seed)[0] for seed in (1, 2)]
-        vec_env = DummyVecEnvWrapper(env_fns)
-        state = {
-            "a": 2.5,
-            "b": -0.75,
-            "posterior_cov": np.asarray([[2.0, 0.1], [0.1, 3.0]], dtype=np.float64),
-        }
-
-        vec_env.sync_calibrator(state)
-
-        for env in vec_env.envs:
-            synced = env.calibrator.get_state()
-            self.assertAlmostEqual(synced["a"], state["a"], places=7)
-            self.assertAlmostEqual(synced["b"], state["b"], places=7)
-            self.assertTrue(np.allclose(synced["posterior_cov"], state["posterior_cov"]))
-
-    def test_trainer_syncs_vec_env_calibrator_before_rollout(self):
-        env_fns = [lambda seed=seed: build_test_env(seed=seed)[0] for seed in (1, 2)]
-        vec_env = DummyVecEnvWrapper(env_fns)
-        main_calibrator = OnlineLogitCalibrator(make_calibration_cfg())
-        target_state = {
-            "a": 1.8,
-            "b": 0.4,
-            "posterior_cov": np.asarray([[1.5, 0.0], [0.0, 2.0]], dtype=np.float64),
-        }
-        main_calibrator.load_state(target_state)
-
-        obs_dim = observation_to_tensor(vec_env.reset()).shape[-1]
+    def test_collect_rollout_returns_collection_report(self):
+        env, calibrator, _, _, _ = build_test_env()
+        obs_dim = observation_to_tensor(env.reset()).shape[-1]
         actor_critic, _ = build_test_actor_critic(obs_dim)
         trainer = Trainer(
-            env=vec_env,
+            env=env,
             actor_critic=actor_critic,
             agent=None,
             buffer=RolloutBuffer(),
-            calibrator=main_calibrator,
+            calibrator=calibrator,
             logger=DummyLogger(),
-            cfg={"batch_episodes": 1, "device": "cpu", "max_collect_attempt_factor": 4},
+            cfg={"batch_episodes": 2, "device": "cpu", "max_collect_attempt_factor": 4},
         )
 
-        trainer.collect_rollout(1)
-
-        for env in vec_env.envs:
-            synced = env.calibrator.get_state()
-            self.assertAlmostEqual(synced["a"], target_state["a"], places=7)
-            self.assertAlmostEqual(synced["b"], target_state["b"], places=7)
-            self.assertTrue(np.allclose(synced["posterior_cov"], target_state["posterior_cov"]))
+        report = trainer.collect_rollout(2)
+        self.assertEqual(report["valid_episodes"], 2)
+        self.assertEqual(len(report["attempt_summaries"]), report["attempts_total"])
+        self.assertTrue(all("trial_status" in item for item in report["attempt_summaries"]))
 
 
 if __name__ == "__main__":

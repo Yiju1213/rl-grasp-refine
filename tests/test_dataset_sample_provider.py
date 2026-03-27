@@ -135,7 +135,7 @@ class TestDatasetSampleProvider(unittest.TestCase):
             for block_start in range(0, len(epoch_a), 2):
                 self.assertEqual(epoch_a[block_start][0], epoch_a[block_start + 1][0])
 
-    def test_provider_shards_epoch_blocks_across_workers(self):
+    def test_provider_shards_epoch_blocks_across_three_workers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_root = Path(tmpdir) / "tactile-extended"
             expected_pairs = {
@@ -147,60 +147,60 @@ class TestDatasetSampleProvider(unittest.TestCase):
                 (1, 21),
                 (1, 22),
                 (1, 23),
+                (2, 30),
+                (2, 31),
+                (2, 32),
+                (2, 33),
             }
             for object_id, global_id in expected_pairs:
                 _write_entry(dataset_root, object_id=object_id, global_id=global_id)
 
-            provider_worker_0 = DatasetSampleProvider(
-                {
-                    "dataset_root": str(dataset_root),
-                    "seed": 11,
-                    "object_block_size": 2,
-                    "worker_id": 0,
-                    "num_workers": 2,
-                    "metadata_cache_size": 1,
-                    "runtime_defaults": {"time_step": 0.005},
-                }
-            )
-            provider_worker_1 = DatasetSampleProvider(
-                {
-                    "dataset_root": str(dataset_root),
-                    "seed": 11,
-                    "object_block_size": 2,
-                    "worker_id": 1,
-                    "num_workers": 2,
-                    "metadata_cache_size": 1,
-                    "runtime_defaults": {"time_step": 0.005},
-                }
-            )
+            providers = [
+                DatasetSampleProvider(
+                    {
+                        "dataset_root": str(dataset_root),
+                        "seed": 11,
+                        "object_block_size": 2,
+                        "worker_id": worker_id,
+                        "num_workers": 3,
+                        "metadata_cache_size": 1,
+                        "runtime_defaults": {"time_step": 0.005},
+                    }
+                )
+                for worker_id in range(3)
+            ]
             provider_worker_0_again = DatasetSampleProvider(
                 {
                     "dataset_root": str(dataset_root),
                     "seed": 11,
                     "object_block_size": 2,
                     "worker_id": 0,
-                    "num_workers": 2,
+                    "num_workers": 3,
                     "metadata_cache_size": 1,
                     "runtime_defaults": {"time_step": 0.005},
                 }
             )
 
-            epoch_worker_0 = [
-                (sample["source"]["object_id"], sample["source"]["global_id"])
-                for sample in (provider_worker_0.sample() for _ in range(len(expected_pairs) // 2))
-            ]
-            epoch_worker_1 = [
-                (sample["source"]["object_id"], sample["source"]["global_id"])
-                for sample in (provider_worker_1.sample() for _ in range(len(expected_pairs) // 2))
+            samples_per_worker = len(expected_pairs) // 3
+            worker_epochs = [
+                [
+                    (sample["source"]["object_id"], sample["source"]["global_id"])
+                    for sample in (provider.sample() for _ in range(samples_per_worker))
+                ]
+                for provider in providers
             ]
             epoch_worker_0_again = [
                 (sample["source"]["object_id"], sample["source"]["global_id"])
-                for sample in (provider_worker_0_again.sample() for _ in range(len(expected_pairs) // 2))
+                for sample in (provider_worker_0_again.sample() for _ in range(samples_per_worker))
             ]
 
-            self.assertEqual(epoch_worker_0, epoch_worker_0_again)
-            self.assertTrue(set(epoch_worker_0).isdisjoint(set(epoch_worker_1)))
-            self.assertEqual(set(epoch_worker_0) | set(epoch_worker_1), expected_pairs)
+            self.assertEqual(worker_epochs[0], epoch_worker_0_again)
+            combined = set()
+            for worker_epoch in worker_epochs:
+                self.assertEqual(len(worker_epoch), samples_per_worker)
+                self.assertTrue(combined.isdisjoint(set(worker_epoch)))
+                combined.update(worker_epoch)
+            self.assertEqual(combined, expected_pairs)
 
     def test_provider_uses_configured_seed(self):
         with tempfile.TemporaryDirectory() as tmpdir:

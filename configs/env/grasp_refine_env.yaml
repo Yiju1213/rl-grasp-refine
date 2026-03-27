@@ -53,28 +53,20 @@ action:
   rotation_bound: [0.1, 0.1, 0.1]
 
 reward:
-  weights:
-    # drop reward 的全局权重。RewardManager.compute() 中参与 total 计算。
-    drop: 1.0
+  # 论文形式：R_stability = Delta p / (1 + kappa * tr(P))
+  stability_kappa: 1.0
 
-    # stability reward 的全局权重。RewardManager.compute() 中参与 total 计算。
-    stability: 0.5
+  # 论文形式：-lambda_c * max(0, tau_c - t_cover)
+  contact_lambda_cover: 0.1
 
-    # contact reward 的全局权重。RewardManager.compute() 中参与 total 计算。
-    contact: 0.1
+  # 论文形式：-lambda_e * max(0, tau_e - t_edge)
+  contact_lambda_edge: 0.1
 
-  # 稳定性奖励中的 uncertainty 惩罚系数。
-  # 公式：gain - stability_alpha * max(0, u_after - u_before)
-  stability_alpha: 0.1
+  # t_cover 的 soft-hinge safety threshold。
+  contact_threshold_cover: 0.2
 
-  # stability reward 的裁剪范围。
-  stability_clip: [-1.0, 1.0]
-
-  # contact reward 中 edge proximity 增量的惩罚系数。
-  contact_beta: 0.5
-
-  # contact reward 的裁剪范围。
-  contact_clip: [-0.25, 0.25]
+  # t_edge 的 soft-hinge safety threshold。
+  contact_threshold_edge: 0.2
 
   # drop_success == 1 时的基础分值。
   drop_success_reward: 1.0

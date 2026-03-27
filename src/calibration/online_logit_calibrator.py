@@ -6,15 +6,14 @@ from src.calibration.base_calibrator import BaseCalibrator
 
 
 class OnlineLogitCalibrator(BaseCalibrator):
-    """Two-parameter online logistic calibrator."""
+    """Two-parameter online logistic calibrator with Laplace covariance."""
 
     def __init__(self, cfg: dict):
         self.init_a = float(cfg.get("init_a", 1.0))
         self.init_b = float(cfg.get("init_b", 0.0))
-        self.learning_rate = float(cfg.get("learning_rate", 0.05))
-        self.l2_reg = float(cfg.get("l2_reg", 0.001))
-        self.prior_var = float(cfg.get("prior_var", 1.0))
-        self.uncertainty_base = float(cfg.get("uncertainty_base", 0.05))
+        self.lambda_reg = float(cfg.get("lambda", 1.0))
+        if self.lambda_reg <= 0.0:
+            raise ValueError("OnlineLogitCalibrator requires a positive 'lambda' regularization term.")
         self.reset()
 
     @staticmethod
@@ -26,16 +25,9 @@ class OnlineLogitCalibrator(BaseCalibrator):
         z = self.a * logits_array + self.b
         calibrated_prob = self._sigmoid(z)
 
-        feature_matrix = np.stack([logits_array.reshape(-1), np.ones(logits_array.size)], axis=1)
-        variances = np.einsum("bi,ij,bj->b", feature_matrix, self.posterior_cov, feature_matrix)
-        uncertainty = np.sqrt(np.maximum(variances, 0.0)) * calibrated_prob.reshape(-1) * (
-            1.0 - calibrated_prob.reshape(-1)
-        )
-        uncertainty = uncertainty + self.uncertainty_base
-
         if np.isscalar(logits) or logits_array.ndim == 0:
-            return float(np.asarray(calibrated_prob).item()), float(np.asarray(uncertainty).item())
-        return calibrated_prob.astype(np.float32), uncertainty.astype(np.float32)
+            return float(np.asarray(calibrated_prob).item())
+        return calibrated_prob.astype(np.float32)
 
     def update(self, logits, labels) -> None:
         logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
@@ -51,17 +43,20 @@ class OnlineLogitCalibrator(BaseCalibrator):
         probs = self._sigmoid(logits_calibrated)
 
         grad = (design.T @ (probs - labels_array)) / logits_array.size
-        grad += self.l2_reg * theta
+        grad += self.lambda_reg * theta
 
         weights = probs * (1.0 - probs)
         hessian = (design.T * weights) @ design / logits_array.size
-        hessian += (self.l2_reg + 1.0 / max(self.prior_var, 1e-6)) * np.eye(2)
+        hessian += self.lambda_reg * np.eye(2)
 
         step = np.linalg.solve(hessian, grad)
-        theta = theta - self.learning_rate * step
+        theta = theta - step
         self.a = float(theta[0])
         self.b = float(theta[1])
         self.posterior_cov = np.linalg.inv(hessian)
+
+    def posterior_trace(self) -> float:
+        return float(np.trace(self.posterior_cov))
 
     def get_state(self) -> dict:
         return {
@@ -78,4 +73,4 @@ class OnlineLogitCalibrator(BaseCalibrator):
     def reset(self) -> None:
         self.a = self.init_a
         self.b = self.init_b
-        self.posterior_cov = np.eye(2, dtype=np.float64) * self.prior_var
+        self.posterior_cov = np.eye(2, dtype=np.float64) / self.lambda_reg

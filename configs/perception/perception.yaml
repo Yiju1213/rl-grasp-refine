@@ -35,10 +35,6 @@ contact_semantics:
   # tactile 激活阈值。超过这个阈值的 contact 值会被视为 active contact。
   tactile_threshold: 0.2
 
-  # edge proximity 的归一化尺度。
-  # 距离越小，compute_edge_proximity() 输出越接近 1。
-  edge_scale: 0.05
-
 sga_gsn:
   runtime:
     source_root: /AdaPoinTr

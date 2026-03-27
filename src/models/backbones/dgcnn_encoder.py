@@ -4,7 +4,26 @@ import torch
 import torch.nn as nn
 
 from src.models.backbones.base_backbone import BaseBackbone
-from src.models.backbones.sga_gsn_encoder import _summarize_tensor
+
+
+def _summarize_tensor(tensor: torch.Tensor | None, batch_size: int, target_dim: int) -> torch.Tensor:
+    if tensor is None:
+        return torch.zeros(batch_size, target_dim)
+
+    if tensor.dim() == 2:
+        flat = tensor
+    else:
+        flat = tensor.reshape(tensor.shape[0], -1)
+    if flat.shape[1] == 0:
+        return torch.zeros(batch_size, target_dim, dtype=flat.dtype, device=flat.device)
+    mean = flat.mean(dim=1, keepdim=True)
+    std = flat.std(dim=1, keepdim=True, unbiased=False)
+    min_value = flat.min(dim=1, keepdim=True).values
+    max_value = flat.max(dim=1, keepdim=True).values
+    l2 = torch.linalg.norm(flat, dim=1, keepdim=True)
+    size = torch.full_like(mean, flat.shape[1], dtype=flat.dtype)
+    stats = torch.cat([mean, std, min_value, max_value, l2, size], dim=1)
+    return stats[:, :target_dim]
 
 
 class DGCNNEncoder(BaseBackbone):

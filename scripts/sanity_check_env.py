@@ -474,8 +474,7 @@ def _step_payload(env, action, obs_before, obs_after, reward, done, info) -> dic
         "raw_logit_after": float(obs_after.raw_stability_logit),
         "calibrated_before": float(info.calibrated_stability_before),
         "calibrated_after": float(info.calibrated_stability_after),
-        "uncertainty_before": float(info.uncertainty_before),
-        "uncertainty_after": float(info.uncertainty_after),
+        "posterior_trace": float(info.posterior_trace),
         "done": bool(done),
     }
 

@@ -5,32 +5,42 @@ from collections.abc import Iterable
 import numpy as np
 import torch
 
+from src.rl.observation_spec import PolicyObservationSpec, flatten_single_observation
 from src.structures.observation import Observation
 
 
-def _flatten_single_observation(obs: Observation) -> np.ndarray:
-    return np.concatenate(
-        [
-            obs.latent_feature.astype(np.float32).reshape(-1),
-            obs.contact_semantic.astype(np.float32).reshape(-1),
-            obs.grasp_pose.position.astype(np.float32).reshape(-1),
-            obs.grasp_pose.rotation.astype(np.float32).reshape(-1),
-            np.asarray([obs.raw_stability_logit], dtype=np.float32),
-        ],
-        axis=0,
+def _default_observation_spec(obs: Observation) -> PolicyObservationSpec:
+    return PolicyObservationSpec(
+        latent_dim=int(obs.latent_feature.shape[0]),
+        components=(
+            "latent_feature",
+            "contact_semantic",
+            "grasp_position",
+            "grasp_rotation",
+            "raw_stability_logit",
+        ),
+        preset="current",
     )
 
 
-def observation_to_tensor(obs: Observation | Iterable[Observation]) -> torch.Tensor:
+def observation_to_tensor(
+    obs: Observation | Iterable[Observation],
+    spec: PolicyObservationSpec | None = None,
+) -> torch.Tensor:
     """Flatten structured observations into policy/value input tensors."""
 
     if isinstance(obs, Observation):
-        return torch.from_numpy(_flatten_single_observation(obs)).float().unsqueeze(0)
+        resolved_spec = spec or _default_observation_spec(obs)
+        return torch.from_numpy(flatten_single_observation(obs, resolved_spec)).float().unsqueeze(0)
 
     if not isinstance(obs, Iterable):
         raise TypeError("observation_to_tensor expects an Observation or iterable of Observation.")
 
-    flattened = [_flatten_single_observation(item) for item in obs]
+    obs_list = list(obs)
+    if not obs_list:
+        raise ValueError("Cannot convert an empty observation batch to a tensor.")
+    resolved_spec = spec or _default_observation_spec(obs_list[0])
+    flattened = [flatten_single_observation(item, resolved_spec) for item in obs_list]
     if not flattened:
         raise ValueError("Cannot convert an empty observation batch to a tensor.")
     return torch.from_numpy(np.stack(flattened, axis=0)).float()
