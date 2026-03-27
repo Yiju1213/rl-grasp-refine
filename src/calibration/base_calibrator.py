@@ -20,5 +20,9 @@ class BaseCalibrator(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def load_state(self, state: dict) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
     def reset(self) -> None:
         raise NotImplementedError

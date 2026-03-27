@@ -300,15 +300,68 @@ def _show_visual_observation(env: GraspRefineEnv) -> None:
 
     raw_obs = raw_obs_getter()
     visual_data = getattr(raw_obs, "visual_data", None)
-    if not isinstance(visual_data, dict):
+    tactile_data = getattr(raw_obs, "tactile_data", None)
+    if not isinstance(visual_data, dict) or not isinstance(tactile_data, dict):
         return
 
     visual_rgb = np.asarray(visual_data.get("rgb"))
+    visual_depth = np.asarray(visual_data.get("depth"))
     visual_seg = np.asarray(visual_data.get("seg"))
-    if visual_rgb.size == 0 or visual_seg.size == 0:
+    tactile_rgb = np.asarray(tactile_data.get("rgb"))
+    tactile_depth = np.asarray(tactile_data.get("depth"))
+    if visual_rgb.size == 0 or visual_depth.size == 0 or visual_seg.size == 0:
+        return
+    if tactile_rgb.size == 0 or tactile_depth.size == 0:
         return
     if visual_rgb.ndim != 3 or visual_rgb.shape[-1] != 3:
         return
+    if tactile_rgb.ndim != 4 or tactile_rgb.shape[0] < 2 or tactile_rgb.shape[-1] != 3:
+        return
+    if tactile_depth.ndim != 3 or tactile_depth.shape[0] < 2:
+        return
+
+    def _label_panel(image: np.ndarray, label: str) -> np.ndarray:
+        panel = np.asarray(image, dtype=np.uint8).copy()
+        cv2.rectangle(panel, (0, 0), (panel.shape[1], 24), (20, 20, 20), thickness=-1)
+        cv2.putText(
+            panel,
+            label,
+            (8, 17),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (240, 240, 240),
+            1,
+            cv2.LINE_AA,
+        )
+        return panel
+
+    def _normalize_depth_for_display(depth_m: np.ndarray) -> np.ndarray:
+        depth = np.asarray(depth_m, dtype=np.float32)
+        valid = np.isfinite(depth) & (depth > 0.0)
+        if not np.any(valid):
+            return np.zeros((*depth.shape, 3), dtype=np.uint8)
+        min_depth = float(np.min(depth[valid]))
+        max_depth = float(np.max(depth[valid]))
+        if max_depth - min_depth < 1e-8:
+            normalized = np.zeros_like(depth, dtype=np.uint8)
+            normalized[valid] = 255
+        else:
+            normalized = np.zeros_like(depth, dtype=np.uint8)
+            normalized[valid] = np.round((depth[valid] - min_depth) * 255.0 / (max_depth - min_depth)).astype(
+                np.uint8
+            )
+        colored = cv2.applyColorMap(normalized, cv2.COLORMAP_TURBO)
+        colored[~valid] = 0
+        return colored
+
+    def _resize_to_height(image: np.ndarray, target_height: int) -> np.ndarray:
+        image = np.asarray(image, dtype=np.uint8)
+        height, width = image.shape[:2]
+        if height == target_height:
+            return image
+        scale = float(target_height) / max(float(height), 1.0)
+        target_width = max(int(round(width * scale)), 1)
+        return cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
 
     seg_vis = np.zeros((*visual_seg.shape, 3), dtype=np.uint8)
     grasp_metadata = getattr(raw_obs, "grasp_metadata", {}) or {}
@@ -318,8 +371,31 @@ def _show_visual_observation(env: GraspRefineEnv) -> None:
     seg_vis[visual_seg == int(hand_seg_id)] = np.array([40, 80, 255], dtype=np.uint8)
     seg_vis[visual_seg == int(object_seg_id)] = np.array([255, 80, 40], dtype=np.uint8)
 
-    cv2.imshow("visual_rgb_actual", cv2.cvtColor(visual_rgb, cv2.COLOR_RGB2BGR))
-    cv2.imshow("visual_seg_actual", cv2.cvtColor(seg_vis, cv2.COLOR_RGB2BGR))
+    visual_panels = [
+        _label_panel(cv2.cvtColor(visual_rgb, cv2.COLOR_RGB2BGR), "visual rgb"),
+        _label_panel(_normalize_depth_for_display(visual_depth), "visual depth"),
+        _label_panel(seg_vis, "visual seg"),
+    ]
+    visual_target_height = max(panel.shape[0] for panel in visual_panels)
+    visual_window = np.concatenate(
+        [_resize_to_height(panel, visual_target_height) for panel in visual_panels],
+        axis=1,
+    )
+
+    tactile_panels = [
+        _label_panel(cv2.cvtColor(tactile_rgb[0], cv2.COLOR_RGB2BGR), "tactile left rgb"),
+        _label_panel(_normalize_depth_for_display(tactile_depth[0]), "tactile left depth"),
+        _label_panel(cv2.cvtColor(tactile_rgb[1], cv2.COLOR_RGB2BGR), "tactile right rgb"),
+        _label_panel(_normalize_depth_for_display(tactile_depth[1]), "tactile right depth"),
+    ]
+    tactile_target_height = max(panel.shape[0] for panel in tactile_panels)
+    tactile_window = np.concatenate(
+        [_resize_to_height(panel, tactile_target_height) for panel in tactile_panels],
+        axis=1,
+    )
+
+    cv2.imshow("raw_obs_visual", visual_window)
+    cv2.imshow("raw_obs_tactile", tactile_window)
 
 
 def _refresh_gui_windows(env: GraspRefineEnv) -> None:

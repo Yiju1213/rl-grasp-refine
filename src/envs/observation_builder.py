@@ -17,13 +17,13 @@ class ObservationBuilder:
         self.stability_predictor = stability_predictor
 
     def build(self, raw_obs: RawSensorObservation, grasp_pose) -> Observation:
-        raw_obs.grasp_metadata["grasp_pose"] = grasp_pose
-        latent_feature = self.feature_extractor.extract(raw_obs)
+        perception_result = self.feature_extractor.encode(raw_obs)
         contact_semantic = self.contact_semantics_extractor.extract(raw_obs)
-        raw_obs.grasp_metadata["contact_semantic"] = contact_semantic
-        raw_stability_logit = self.stability_predictor.predict_logit(raw_obs, latent_feature)
+        raw_stability_logit = perception_result.raw_stability_logit
+        if raw_stability_logit is None:
+            raw_stability_logit = self.stability_predictor.predict_logit(perception_result.latent_feature)
         return Observation(
-            latent_feature=latent_feature,
+            latent_feature=perception_result.latent_feature,
             contact_semantic=contact_semantic,
             grasp_pose=grasp_pose,
             raw_stability_logit=raw_stability_logit,

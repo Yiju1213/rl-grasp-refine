@@ -14,7 +14,6 @@ from src.perception.sga_gsn_types import PreparedVTGInputs, SGAGSNInferenceResul
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-INFERENCE_CACHE_KEY = "_sga_gsn_inference_result"
 
 _RUNTIME_CACHE: dict[tuple[str, str, str, str, str], "SGAGSNPerceptionRuntime"] = {}
 _RUNTIME_CACHE_LOCK = Lock()
@@ -125,13 +124,8 @@ class SGAGSNPerceptionRuntime:
                 parameter.requires_grad = False
 
     def infer(self, raw_obs, adapter) -> SGAGSNInferenceResult:
-        cached = raw_obs.grasp_metadata.get(INFERENCE_CACHE_KEY)
-        if isinstance(cached, SGAGSNInferenceResult):
-            return cached
         prepared_inputs = adapter.prepare_inputs(raw_obs)
-        result = self.run_prepared(prepared_inputs)
-        raw_obs.grasp_metadata[INFERENCE_CACHE_KEY] = result
-        return result
+        return self.run_prepared(prepared_inputs)
 
     def run_prepared(self, prepared_inputs: PreparedVTGInputs) -> SGAGSNInferenceResult:
         sc_input = torch.from_numpy(prepared_inputs.sc_input).unsqueeze(0).to(self.device)

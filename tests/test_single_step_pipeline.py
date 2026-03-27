@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import torch
 
+from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.rl.ppo_agent import PPOAgent
 from src.rl.rollout_buffer import RolloutBuffer
 from src.rl.trainer import Trainer
@@ -13,6 +15,7 @@ from tests.fakes import (
     DummyLogger,
     build_test_actor_critic,
     build_test_env,
+    make_calibration_cfg,
     make_rl_cfg,
 )
 
@@ -62,6 +65,54 @@ class TestSingleStepPipeline(unittest.TestCase):
         self.assertEqual(rewards.shape, (2,))
         self.assertEqual(dones.shape, (2,))
         self.assertEqual(len(infos), 2)
+
+    def test_dummy_vec_env_wrapper_syncs_calibrator_state(self):
+        env_fns = [lambda seed=seed: build_test_env(seed=seed)[0] for seed in (1, 2)]
+        vec_env = DummyVecEnvWrapper(env_fns)
+        state = {
+            "a": 2.5,
+            "b": -0.75,
+            "posterior_cov": np.asarray([[2.0, 0.1], [0.1, 3.0]], dtype=np.float64),
+        }
+
+        vec_env.sync_calibrator(state)
+
+        for env in vec_env.envs:
+            synced = env.calibrator.get_state()
+            self.assertAlmostEqual(synced["a"], state["a"], places=7)
+            self.assertAlmostEqual(synced["b"], state["b"], places=7)
+            self.assertTrue(np.allclose(synced["posterior_cov"], state["posterior_cov"]))
+
+    def test_trainer_syncs_vec_env_calibrator_before_rollout(self):
+        env_fns = [lambda seed=seed: build_test_env(seed=seed)[0] for seed in (1, 2)]
+        vec_env = DummyVecEnvWrapper(env_fns)
+        main_calibrator = OnlineLogitCalibrator(make_calibration_cfg())
+        target_state = {
+            "a": 1.8,
+            "b": 0.4,
+            "posterior_cov": np.asarray([[1.5, 0.0], [0.0, 2.0]], dtype=np.float64),
+        }
+        main_calibrator.load_state(target_state)
+
+        obs_dim = observation_to_tensor(vec_env.reset()).shape[-1]
+        actor_critic, _ = build_test_actor_critic(obs_dim)
+        trainer = Trainer(
+            env=vec_env,
+            actor_critic=actor_critic,
+            agent=None,
+            buffer=RolloutBuffer(),
+            calibrator=main_calibrator,
+            logger=DummyLogger(),
+            cfg={"batch_episodes": 1, "device": "cpu", "max_collect_attempt_factor": 4},
+        )
+
+        trainer.collect_rollout(1)
+
+        for env in vec_env.envs:
+            synced = env.calibrator.get_state()
+            self.assertAlmostEqual(synced["a"], target_state["a"], places=7)
+            self.assertAlmostEqual(synced["b"], target_state["b"], places=7)
+            self.assertTrue(np.allclose(synced["posterior_cov"], target_state["posterior_cov"]))
 
 
 if __name__ == "__main__":

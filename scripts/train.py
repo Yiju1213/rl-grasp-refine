@@ -39,7 +39,11 @@ def main():
         shared_env.scene.close()
         num_envs = int(rl_cfg["num_envs"])
         env_fns = [
-            lambda calibrator=calibrator: build_env(env_cfg, perception_cfg, calibration_cfg, calibrator=calibrator)[0]
+            lambda env_cfg=env_cfg, perception_cfg=perception_cfg, calibration_cfg=calibration_cfg: build_env(
+                env_cfg,
+                perception_cfg,
+                calibration_cfg,
+            )[0]
             for _ in range(num_envs)
         ]
         env = DummyVecEnvWrapper(env_fns)

@@ -64,6 +64,7 @@ class Trainer:
 
     def collect_rollout(self, num_episodes: int):
         self.buffer.clear()
+        self._sync_calibrator_to_env()
         #TODO 可以用单个函数同时处理单环境和多环境的rollout收集，避免代码重复
         if isinstance(self.env, DummyVecEnvWrapper):
             self._collect_rollout_vec(num_episodes)
@@ -145,6 +146,13 @@ class Trainer:
         logits = batch["raw_logit_after"]
         labels = np.asarray([info.drop_success for info in batch["infos"]], dtype=np.float32)
         self.calibrator.update(logits, labels)
+
+    def _sync_calibrator_to_env(self) -> None:
+        get_state = getattr(self.calibrator, "get_state", None)
+        sync_fn = getattr(self.env, "sync_calibrator", None)
+        if not callable(get_state) or not callable(sync_fn):
+            return
+        sync_fn(get_state())
 
     def log_iteration(self, stats: dict):
         self.logger.log_dict(stats, step=self.iteration)

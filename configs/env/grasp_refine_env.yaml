@@ -12,7 +12,7 @@ max_reset_attempts: 32
 dataset:
   enabled: true
   dataset_root: /Datasets/GraspNet-1billion/tactile-extended
-  seed: 7
+  seed: 10
   metadata_cache_size: 4
   # 单 worker 内连续从同一 object 采样的 grasp block 大小。
   object_block_size: 4

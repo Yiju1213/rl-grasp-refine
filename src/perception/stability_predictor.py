@@ -1,27 +1,28 @@
 from __future__ import annotations
 
+import numpy as np
+import torch
+
 
 class StabilityPredictor:
-    """Wrap a stability prediction head and input adapter."""
+    """Wrap a feature-only stability prediction head."""
 
-    def __init__(self, predictor_model, adapter, freeze: bool = True, runtime=None):
+    def __init__(self, predictor_model, freeze: bool = True):
         self.predictor_model = predictor_model
-        self.adapter = adapter
         self.freeze = freeze
-        self.runtime = runtime
 
-    def predict_logit(self, raw_obs, latent_feature) -> float:
-        if self.runtime is not None:
-            result = self.runtime.infer(raw_obs, self.adapter)
-            return float(result.raw_logit)
+    def predict_logit(self, latent_feature) -> float:
+        if self.predictor_model is None:
+            raise RuntimeError("StabilityPredictor has no predictor_model; raw logit must come from PerceptionResult.")
 
-        model_inputs = self.adapter.adapt_predictor_input(raw_obs, latent_feature)
+        latent_tensor = torch.as_tensor(np.asarray(latent_feature), dtype=torch.float32)
+        if latent_tensor.dim() == 1:
+            latent_tensor = latent_tensor.unsqueeze(0)
+
         self.predictor_model.eval()
         if self.freeze:
-            import torch
-
             with torch.no_grad():
-                logit = self.predictor_model(**model_inputs)
+                logit = self.predictor_model(latent_feature=latent_tensor)
         else:
-            logit = self.predictor_model(**model_inputs)
+            logit = self.predictor_model(latent_feature=latent_tensor)
         return float(logit.squeeze(0).detach().cpu().item())

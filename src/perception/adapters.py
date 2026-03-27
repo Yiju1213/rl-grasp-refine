@@ -7,7 +7,6 @@ import numpy as np
 import torch
 
 from src.perception.sga_gsn_types import PreparedVTGInputs
-from src.structures.action import GraspPose
 from src.structures.observation import RawSensorObservation
 from src.utils.geometry import (
     DEFAULT_TACTILE_CAMERA_TO_GEL_M,
@@ -54,44 +53,11 @@ def _extract_tactile(raw_obs: RawSensorObservation):
     return tactile
 
 
-def _grasp_pose_to_array(grasp_pose) -> np.ndarray:
-    if isinstance(grasp_pose, GraspPose):
-        return grasp_pose.as_array()
-    return np.asarray(grasp_pose, dtype=np.float32).reshape(6)
-
-
-def _sensor_summary(raw_obs: RawSensorObservation) -> torch.Tensor:
-    point_cloud = np.asarray(_extract_point_cloud(raw_obs) if _extract_point_cloud(raw_obs) is not None else [0.0])
-    tactile = np.asarray(_extract_tactile(raw_obs) if _extract_tactile(raw_obs) is not None else [0.0])
-    if point_cloud.size == 0:
-        point_cloud = np.asarray([0.0], dtype=np.float32)
-    if tactile.size == 0:
-        tactile = np.asarray([0.0], dtype=np.float32)
-    summary = np.asarray(
-        [
-            float(np.mean(point_cloud)),
-            float(np.std(point_cloud)),
-            float(np.mean(tactile)),
-            float(np.std(tactile)),
-        ],
-        dtype=np.float32,
-    )
-    return torch.from_numpy(summary).unsqueeze(0)
-
-
 class PerceptionInputAdapter(ABC):
     """Adapter interface between raw observations and model inputs."""
 
     @abstractmethod
     def adapt_feature_input(self, raw_obs: RawSensorObservation) -> dict[str, torch.Tensor]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def adapt_predictor_input(
-        self,
-        raw_obs: RawSensorObservation,
-        latent_feature,
-    ) -> dict[str, torch.Tensor]:
         raise NotImplementedError
 
     def prepare_inputs(self, raw_obs: RawSensorObservation) -> PreparedVTGInputs:
@@ -118,27 +84,6 @@ class SGAGSNAdapter(PerceptionInputAdapter):
         return {
             "point_cloud": _to_float_tensor(_extract_point_cloud(raw_obs), add_batch_dim=True),
             "tactile": _to_float_tensor(_extract_tactile(raw_obs), add_batch_dim=True),
-        }
-
-    def adapt_predictor_input(
-        self,
-        raw_obs: RawSensorObservation,
-        latent_feature,
-    ) -> dict[str, torch.Tensor]:
-        if isinstance(latent_feature, torch.Tensor):
-            latent_tensor = latent_feature.float()
-        else:
-            latent_tensor = torch.as_tensor(np.asarray(latent_feature), dtype=torch.float32)
-        if latent_tensor.dim() == 1:
-            latent_tensor = latent_tensor.unsqueeze(0)
-
-        grasp_pose = raw_obs.grasp_metadata.get("grasp_pose")
-        contact_semantic = raw_obs.grasp_metadata.get("contact_semantic", np.zeros(2, dtype=np.float32))
-        return {
-            "latent_feature": latent_tensor,
-            "grasp_pose": torch.from_numpy(_grasp_pose_to_array(grasp_pose)).unsqueeze(0),
-            "contact_feature": torch.as_tensor(contact_semantic, dtype=torch.float32).reshape(1, -1),
-            "sensor_summary": _sensor_summary(raw_obs),
         }
 
     def prepare_inputs(self, raw_obs: RawSensorObservation) -> PreparedVTGInputs:

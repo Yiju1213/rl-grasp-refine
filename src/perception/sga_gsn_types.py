@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -42,8 +43,22 @@ class PreparedVTGInputs:
 
 
 @dataclass
+class PerceptionResult:
+    """Internal perception sidecar used by ObservationBuilder."""
+
+    latent_feature: np.ndarray
+    raw_stability_logit: float | None = None
+    runtime_payload: Any | None = None
+
+    def __post_init__(self) -> None:
+        self.latent_feature = np.asarray(self.latent_feature, dtype=np.float32).reshape(-1)
+        if self.raw_stability_logit is not None:
+            self.raw_stability_logit = float(self.raw_stability_logit)
+
+
+@dataclass
 class SGAGSNInferenceResult:
-    """Cached result for a single raw observation."""
+    """Single SGA-GSN runtime inference result."""
 
     prepared_inputs: PreparedVTGInputs
     body_feature: np.ndarray

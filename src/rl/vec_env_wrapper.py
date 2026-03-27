@@ -22,6 +22,12 @@ class DummyVecEnvWrapper:
         observations, rewards, dones, infos = zip(*results)
         return list(observations), np.asarray(rewards, dtype=np.float32), np.asarray(dones, dtype=bool), list(infos)
 
+    def sync_calibrator(self, state: dict) -> None:
+        for env in self.envs:
+            sync_fn = getattr(env, "sync_calibrator", None)
+            if callable(sync_fn):
+                sync_fn(state)
+
     def close(self) -> None:
         for env in self.envs:
             close_fn = getattr(env, "close", None)

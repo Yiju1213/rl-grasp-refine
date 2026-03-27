@@ -33,15 +33,10 @@ def build_stability_predictor(cfg: dict):
 
     if adapter_type == "dgcnn":
         predictor_cfg.setdefault("latent_dim", cfg.get("backbone", {}).get("latent_dim", 32))
-        adapter = DGCNNAdapter()
         predictor_model = StabilityHead(predictor_cfg)
-        runtime = None
     else:
-        runtime_cfg = cfg.get("sga_gsn", {}).get("runtime", {})
-        adapter = SGAGSNAdapter(cfg)
         predictor_model = None
-        runtime = get_shared_sga_gsn_runtime(runtime_cfg)
-    return StabilityPredictor(predictor_model=predictor_model, adapter=adapter, freeze=freeze, runtime=runtime)
+    return StabilityPredictor(predictor_model=predictor_model, freeze=freeze)
 
 
 def infer_perception_feature_dim(cfg: dict) -> int:

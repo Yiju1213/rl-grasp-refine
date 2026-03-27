@@ -70,6 +70,11 @@ class OnlineLogitCalibrator(BaseCalibrator):
             "posterior_cov": self.posterior_cov.copy(),
         }
 
+    def load_state(self, state: dict) -> None:
+        self.a = float(state["a"])
+        self.b = float(state["b"])
+        self.posterior_cov = np.asarray(state["posterior_cov"], dtype=np.float64).copy().reshape(2, 2)
+
     def reset(self) -> None:
         self.a = self.init_a
         self.b = self.init_b

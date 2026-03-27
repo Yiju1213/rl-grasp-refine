@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.perception.sga_gsn_types import PerceptionResult
+
 
 class FeatureExtractor:
     """Wrap a backbone model and adapter behind a stable interface."""
@@ -12,10 +14,14 @@ class FeatureExtractor:
         self.freeze = freeze
         self.runtime = runtime
 
-    def extract(self, raw_obs):
+    def encode(self, raw_obs) -> PerceptionResult:
         if self.runtime is not None:
             result = self.runtime.infer(raw_obs, self.adapter)
-            return result.body_feature.copy()
+            return PerceptionResult(
+                latent_feature=result.body_feature.copy(),
+                raw_stability_logit=result.raw_logit,
+                runtime_payload=result,
+            )
 
         model_inputs = self.adapter.adapt_feature_input(raw_obs)
         self.backbone_model.eval()
@@ -26,4 +32,9 @@ class FeatureExtractor:
                 latent = self.backbone_model(**model_inputs)
         else:
             latent = self.backbone_model(**model_inputs)
-        return np.asarray(latent.squeeze(0).detach().cpu().numpy(), dtype=np.float32)
+        return PerceptionResult(
+            latent_feature=np.asarray(latent.squeeze(0).detach().cpu().numpy(), dtype=np.float32),
+        )
+
+    def extract(self, raw_obs):
+        return self.encode(raw_obs).latent_feature.copy()

@@ -41,3 +41,4 @@ Thumbs.db
 # 3rd party and local data files
 src/envs/object_model
 src/envs/assets
+docs/rl-regrasp

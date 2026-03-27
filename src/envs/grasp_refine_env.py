@@ -164,6 +164,11 @@ class GraspRefineEnv:
         if callable(close_fn):
             close_fn()
 
+    def sync_calibrator(self, state: dict) -> None:
+        load_state = getattr(self.calibrator, "load_state", None)
+        if callable(load_state):
+            load_state(state)
+
     def get_debug_snapshot(self) -> dict:
         scene_debug = {}
         scene_getter = getattr(self.scene, "get_debug_snapshot", None)
