@@ -22,6 +22,7 @@ from src.envs.scene_assets import (
 )
 from src.structures.action import NormalizedAction
 from src.envs.grasp_refine_env import GraspRefineEnv
+from src.utils.seed import set_seed
 
 
 def _build_env_from_args(
@@ -31,7 +32,8 @@ def _build_env_from_args(
     visualize_tacto_gui: bool,
     visualize_debug_windows: bool,
 ):
-    _, config_bundle = load_experiment_bundle(experiment_path)
+    experiment_cfg, config_bundle = load_experiment_bundle(experiment_path)
+    set_seed(int(experiment_cfg.get("seed", 0)))
     env_cfg = deepcopy(config_bundle["env"])
     perception_cfg = config_bundle["perception"]
     calibration_cfg = config_bundle["calibration"]

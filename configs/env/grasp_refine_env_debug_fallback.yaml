@@ -1,0 +1,39 @@
+# Debug-only fallback env config for non-dataset toy runs.
+# 正式训练请使用 grasp_refine_env.yaml。
+
+max_reset_attempts: 32
+
+dataset:
+  enabled: false
+
+scene:
+  use_gui: false
+  tacto_width: 240
+  tacto_height: 320
+  visual_width: 448
+  visual_height: 448
+  visual_near: 0.01
+  visual_far: 2.0
+  visualize_tacto_gui: false
+
+action:
+  translation_bound: [0.01, 0.01, 0.01]
+  rotation_bound: [0.1, 0.1, 0.1]
+
+reward:
+  stability_kappa: 1.0
+  contact_lambda_cover: 0.1
+  contact_lambda_edge: 0.1
+  contact_threshold_cover: 0.2
+  contact_threshold_edge: 0.2
+  drop_success_reward: 1.0
+  drop_failure_reward: -1.0
+
+sampling:
+  position_noise: [0.015, 0.015, 0.015]
+  rotation_noise: [0.12, 0.12, 0.12]
+
+default_sample_cfg:
+  target_grasp_pose:
+    position: [0.0, 0.0, 0.08]
+    rotation: [0.0, 0.0, 0.0]

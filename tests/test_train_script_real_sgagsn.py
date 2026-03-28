@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from src.utils.checkpoint import load_checkpoint
+from src.utils.config import load_config
 from tests.runtime_smoke_utils import (
     assert_real_sgagsn_resources,
     configure_headless_render_env,
@@ -46,18 +47,26 @@ class TestTrainScriptRealSGAGSN(unittest.TestCase):
                     f"stdout:\n{completed.stdout}\n\nstderr:\n{completed.stderr}"
                 )
 
-            final_checkpoint = output_root / "checkpoints" / "final.pt"
+            experiment_cfg = load_config(experiment_path)
+            experiment_dir = output_root / "logs" / experiment_cfg["name"]
+            final_checkpoint = experiment_dir / "checkpoints" / "final.pt"
+            best_checkpoint = experiment_dir / "checkpoints" / "best.pt"
             self.assertTrue(final_checkpoint.exists(), msg=f"Missing checkpoint: {final_checkpoint}")
+            self.assertTrue(best_checkpoint.exists(), msg=f"Missing checkpoint: {best_checkpoint}")
             checkpoint = load_checkpoint(final_checkpoint)
             for key in ("actor_critic", "optimizer", "history", "calibrator", "experiment_cfg"):
                 self.assertIn(key, checkpoint)
             self.assertEqual(len(checkpoint["history"]), 1)
+            self.assertEqual(checkpoint["best_metric_name"], "outcome/success_rate_live_after")
 
-            self.assertTrue((output_root / "logs" / "metrics.jsonl").exists())
-            self.assertTrue((output_root / "logs" / "run.log").exists())
-            tensorboard_dir = output_root / "logs" / "tensorboard"
+            self.assertTrue((experiment_dir / "metrics.jsonl").exists())
+            self.assertTrue((experiment_dir / "run.log").exists())
+            tensorboard_dir = experiment_dir / "tensorboard"
             self.assertTrue(tensorboard_dir.exists())
             self.assertTrue(any(path.name.startswith("events.out.tfevents") for path in tensorboard_dir.iterdir()))
+            config_snapshot_dir = experiment_dir / "configs"
+            for filename in ("experiment.yaml", "env.yaml", "perception.yaml", "calibration.yaml", "rl.yaml", "actor_critic.yaml"):
+                self.assertTrue((config_snapshot_dir / filename).exists(), msg=f"Missing config snapshot: {filename}")
 
 
 if __name__ == "__main__":

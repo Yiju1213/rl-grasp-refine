@@ -59,6 +59,8 @@ class TestSingleStepPipeline(unittest.TestCase):
             "ppo/clip_fraction",
             "ppo/grad_norm",
             "timing/iteration_wall_s",
+            "system/process_rss_mb",
+            "system/process_vms_mb",
         ):
             self.assertIn(key, history[0])
 
@@ -80,6 +82,28 @@ class TestSingleStepPipeline(unittest.TestCase):
         self.assertEqual(report["valid_episodes"], 2)
         self.assertEqual(len(report["attempt_summaries"]), report["attempts_total"])
         self.assertTrue(all("trial_status" in item for item in report["attempt_summaries"]))
+
+    def test_trainer_can_continue_iteration_numbering(self):
+        env, calibrator, _, _, _ = build_test_env()
+        obs_dim = observation_to_tensor(env.reset()).shape[-1]
+        actor_critic, _ = build_test_actor_critic(obs_dim)
+        rl_cfg = make_rl_cfg()
+        optimizer = torch.optim.Adam(actor_critic.parameters(), lr=float(rl_cfg["learning_rate"]))
+        agent = PPOAgent(actor_critic=actor_critic, optimizer=optimizer, cfg=rl_cfg)
+        logger = DummyLogger()
+        trainer = Trainer(
+            env=env,
+            actor_critic=actor_critic,
+            agent=agent,
+            buffer=RolloutBuffer(),
+            calibrator=calibrator,
+            logger=logger,
+            cfg=rl_cfg,
+        )
+
+        history = trainer.train(num_iterations=1, start_iteration=5)
+        self.assertEqual(len(history), 1)
+        self.assertTrue(any(step == 5 for step, _ in logger.records if isinstance(step, int)))
 
 
 if __name__ == "__main__":

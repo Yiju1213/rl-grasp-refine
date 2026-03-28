@@ -5,32 +5,27 @@
 # - ActionExecutor
 # - RewardManager
 
-# 环境内部随机数种子。
-seed: 42
+# 随机种子统一由 experiment.seed 注入。
 max_reset_attempts: 32
 
 dataset:
   enabled: true
   dataset_root: /Datasets/GraspNet-1billion/tactile-extended
-  seed: 10
+  # 抽样 seed 由 experiment.seed 统一注入。
   metadata_cache_size: 4
   # 单 worker 内连续从同一 object 采样的 grasp block 大小。
   object_block_size: 4
-  # 多进程训练时由外部为每个 worker 覆盖。
-  worker_id: 0
-  num_workers: 1
   runtime_defaults:
     time_step: 0.005
     close_timeout_s: 1.0
     effort_timeout_s: 1.0
     grip_force: 30.0
-    release_duration_s: 2.0
+    release_duration_s: 1.5
     release_check_interval_steps: 10
     post_refine_settle_steps: 8
 
 scene:
   use_gui: false
-  time_step: 0.005
   tacto_width: 240
   tacto_height: 320
   visual_width: 448
@@ -38,10 +33,6 @@ scene:
   visual_near: 0.01
   visual_far: 2.0
   visualize_tacto_gui: false
-  visual_point_cloud_max_points: 2048
-
-  workspace_bounds:
-    position: [[-0.1, 0.1], [-0.1, 0.1], [0.0, 0.2]]
 
 action:
   # policy 输出前 3 维的物理平移上限（米）。
@@ -57,13 +48,13 @@ reward:
   stability_kappa: 1.0
 
   # 论文形式：-lambda_c * max(0, tau_c - t_cover)
-  contact_lambda_cover: 0.1
+  contact_lambda_cover: 0.30
 
   # 论文形式：-lambda_e * max(0, tau_e - t_edge)
-  contact_lambda_edge: 0.1
+  contact_lambda_edge: 0.25
 
   # t_cover 的 soft-hinge safety threshold。
-  contact_threshold_cover: 0.2
+  contact_threshold_cover: 0.25
 
   # t_edge 的 soft-hinge safety threshold。
   contact_threshold_edge: 0.2
@@ -73,27 +64,3 @@ reward:
 
   # drop_success == 0 时的基础分值。
   drop_failure_reward: -1.0
-
-default_sample_cfg:
-  object_name: cube
-
-  object_pose:
-    # 物体初始位置。当前 PyBulletScene.reset_scene() 会用 position 创建一个 box。
-    position: [0.0, 0.0, 0.04]
-
-    # 物体初始旋转。当前代码没有直接使用这个字段，属于后续真实 scene 预留。
-    rotation: [0.0, 0.0, 0.0]
-
-  target_grasp_pose:
-    # 目标 grasp 的位置。当前 success heuristic 和 raw observation 都围绕它构造。
-    position: [0.0, 0.0, 0.08]
-
-    # 目标 grasp 的旋转（rotation vector）。当前 success heuristic 会用它计算 rotation error。
-    rotation: [0.0, 0.0, 0.0]
-
-  trial:
-    # position error 小于该阈值时，trial 才可能判成功。
-    max_position_error: 0.015
-
-    # rotation error 小于该阈值时，trial 才可能判成功。
-    max_rotation_error: 0.2

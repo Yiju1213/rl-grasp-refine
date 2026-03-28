@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 
 import numpy as np
@@ -34,6 +35,12 @@ class _ExplodingEnv:
         return None
 
 
+class _AbruptExitEnv(_ExplodingEnv):
+    def step(self, action: NormalizedAction):
+        del action
+        os._exit(17)
+
+
 def build_exploding_env_for_worker(
     env_cfg: dict,
     perception_cfg: dict,
@@ -44,6 +51,18 @@ def build_exploding_env_for_worker(
 ):
     del env_cfg, perception_cfg, worker_id, num_workers, worker_seed
     return _ExplodingEnv(calibration_cfg)
+
+
+def build_abrupt_exit_env_for_worker(
+    env_cfg: dict,
+    perception_cfg: dict,
+    calibration_cfg: dict,
+    worker_id: int | None = None,
+    num_workers: int | None = None,
+    worker_seed: int | None = None,
+):
+    del env_cfg, perception_cfg, worker_id, num_workers, worker_seed
+    return _AbruptExitEnv(calibration_cfg)
 
 
 class TestAsyncCollectorFailurePaths(unittest.TestCase):
@@ -84,6 +103,42 @@ class TestAsyncCollectorFailurePaths(unittest.TestCase):
             collector.close()
 
         self.assertTrue(all(not process.is_alive() for process in collector._processes))
+
+    def test_unexpected_worker_exit_surfaces_exitcode_diagnostics(self):
+        env_cfg = {"seed": 1}
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=1,
+            observation_spec=spec,
+            env_factory=build_abrupt_exit_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+            with self.assertRaisesRegex(RuntimeError, "exitcode"):
+                collector.collect_batch(
+                    target_valid_episodes=1,
+                    actor_state=actor_state,
+                    calibrator_state=calibrator.get_state(),
+                    obs_spec=spec,
+                    rollout_version=0,
+                )
+        finally:
+            collector.close()
 
 
 if __name__ == "__main__":

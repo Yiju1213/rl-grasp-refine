@@ -116,6 +116,11 @@ class GraspRefineEnv:
             return self.sample_provider.sample()
 
         sample_cfg = deepcopy(self.cfg.get("default_sample_cfg", {}))
+        if not sample_cfg:
+            raise RuntimeError(
+                "No dataset sample provider is configured and env cfg has no default_sample_cfg. "
+                "Use a dataset-backed env config for formal training, or provide a debug fallback env config."
+            )
         target_pose = sample_cfg["target_grasp_pose"]
         sampling_cfg = self.cfg.get("sampling", {})
         position_noise = np.asarray(sampling_cfg.get("position_noise", [0.015, 0.015, 0.015]), dtype=np.float32)

@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - pybullet wheels usually vendor this.
 
 
 GRIPPER_CLOSE_WIDTH = 0.8
+DEFAULT_PYBULLET_TIME_STEP = 1.0 / 200.0
 
 
 class PyBulletScene:
@@ -66,7 +67,9 @@ class PyBulletScene:
         if pybullet_data is not None:
             pb.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client_id)
         pb.setGravity(0.0, 0.0, 0.0, physicsClientId=self.client_id)
-        pb.setTimeStep(float(self.cfg.get("time_step", 1.0 / 200.0)), physicsClientId=self.client_id)
+        # Always step the simulation explicitly; do not bind physics stepping to wall-clock time.
+        pb.setRealTimeSimulation(0, physicsClientId=self.client_id)
+        pb.setTimeStep(float(DEFAULT_PYBULLET_TIME_STEP), physicsClientId=self.client_id)
         if bool(self.cfg.get("use_gui", False)):
             pb.configureDebugVisualizer(pb.COV_ENABLE_RGB_BUFFER_PREVIEW, 1, physicsClientId=self.client_id)
             pb.configureDebugVisualizer(pb.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 1, physicsClientId=self.client_id)
@@ -229,7 +232,7 @@ class PyBulletScene:
                 self.object_constraint_id = None
             pb.setGravity(0.0, 0.0, -9.81, physicsClientId=self.client_id)
 
-            time_step = float(self._runtime_cfg().get("time_step", 1.0 / 200.0))
+            time_step = float(self._runtime_cfg().get("time_step", DEFAULT_PYBULLET_TIME_STEP))
             release_duration = float(self._runtime_cfg().get("release_duration_s", 2.0))
             release_interval = int(self._runtime_cfg().get("release_check_interval_steps", 10))
             total_steps = max(int(release_duration / max(time_step, 1e-6)), 1)
@@ -350,7 +353,8 @@ class PyBulletScene:
         if pybullet_data is not None:
             pb.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client_id)
         pb.setGravity(0.0, 0.0, 0.0, physicsClientId=self.client_id)
-        pb.setTimeStep(float(self._runtime_cfg().get("time_step", 1.0 / 200.0)), physicsClientId=self.client_id)
+        pb.setRealTimeSimulation(0, physicsClientId=self.client_id)
+        pb.setTimeStep(float(self._runtime_cfg().get("time_step", DEFAULT_PYBULLET_TIME_STEP)), physicsClientId=self.client_id)
         self._clear_object_constraint()
 
     def _ensure_sample_object(self) -> str:
@@ -399,7 +403,7 @@ class PyBulletScene:
         raise_on_failure: bool,
     ) -> dict[str, Any]:
         stage_prefix = str(stage)
-        time_step = float(self._runtime_cfg().get("time_step", 1.0 / 200.0))
+        time_step = float(self._runtime_cfg().get("time_step", DEFAULT_PYBULLET_TIME_STEP))
         close_timeout_s = float(self._runtime_cfg().get("close_timeout_s", 1.0))
         effort_timeout_s = float(self._runtime_cfg().get("effort_timeout_s", 1.0))
         grip_force = float(self._runtime_cfg().get("grip_force", 30.0))

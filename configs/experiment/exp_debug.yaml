@@ -2,14 +2,14 @@
 # 当前由 scripts/train.py、scripts/evaluate.py、scripts/sanity_check_env.py、
 # scripts/debug_single_rollout.py、scripts/debug_calibrator.py 共同读取。
 
-# 实验名。当前主要是文档化字段，没有被逻辑直接使用。
-name: exp_debug
+# 实验名。训练输出会写到 logging.log_dir/<name>/ 下。
+name: reward-group-a_paper-spec
 
 # 实验随机种子。train/evaluate 脚本会优先用这里的值。
 seed: 7
 
 # 训练迭代数。当前 train.py -> Trainer.train() 直接读取。
-num_iterations: 5
+num_iterations: 150
 
 configs:
   # 环境主配置路径。build_env() 会消费其中的大部分字段。
@@ -28,10 +28,10 @@ configs:
   actor_critic: configs/model/actor_critic.yaml
 
 logging:
-  # 训练日志目录。Logger 会在这里写 run.log 和 metrics.jsonl。
+  # 训练输出根目录。实际产物会写到 log_dir/<name>/ 下。
   log_dir: outputs/exp_debug
 
-  # checkpoint 保存目录。train.py 最终会把 final.pt 写到这里。
+  # checkpoint 根目录。实际会写到 checkpoint_dir 的同级 <name>/checkpoints/ 下。
   checkpoint_dir: outputs/exp_debug/checkpoints
 
   tensorboard:
@@ -42,3 +42,9 @@ logging:
     enabled: false
     path: outputs/exp_debug/episode_metrics.jsonl
     every_n_iterations: 10
+
+  best_checkpoint:
+    enabled: true
+    metric: outcome/success_rate_live_after
+    mode: max
+    filename: best.pt

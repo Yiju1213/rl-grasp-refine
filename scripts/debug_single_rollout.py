@@ -5,6 +5,7 @@ import json
 
 from _common import build_actor_critic, build_env, load_experiment_bundle
 from src.utils.tensor_utils import observation_to_tensor
+from src.utils.seed import set_seed
 
 
 def main():
@@ -12,11 +13,12 @@ def main():
     parser.add_argument("--experiment", default="configs/experiment/exp_debug.yaml")
     args = parser.parse_args()
 
-    _, config_bundle = load_experiment_bundle(args.experiment)
+    experiment_cfg, config_bundle = load_experiment_bundle(args.experiment)
     env_cfg = config_bundle["env"]
     perception_cfg = config_bundle["perception"]
     calibration_cfg = config_bundle["calibration"]
     actor_critic_cfg = config_bundle["actor_critic"]
+    set_seed(int(experiment_cfg.get("seed", 0)))
 
     env, calibrator = build_env(env_cfg, perception_cfg, calibration_cfg)
     actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)

@@ -14,7 +14,7 @@ worker_policy_device: cuda:0
 
 # 每个 iteration 要收集多少个 episode。
 # 在 single-step 设定下，也可以理解为每轮 PPO update 的样本数。
-batch_episodes: 32
+batch_episodes: 64
 
 # 折扣因子。Trainer -> compute_returns_and_advantages() 使用。
 gamma: 0.99
@@ -51,4 +51,4 @@ normalize_advantages: true
 max_collect_attempt_factor: 10
 
 # worker 数量。>1 时会启用 spawn 型异步 rollout collector。
-num_envs: 1
+num_envs: 12

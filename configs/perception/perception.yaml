@@ -5,30 +5,23 @@
 # 当前：
 # - "sga_gsn" -> SGAGSNAdapter + shared AdaPoinTr/SGSNet runtime
 # - "dgcnn"   -> DGCNNAdapter + DGCNNEncoder
-# 实际 backbone 选择优先看这个字段，而不是 backbone.type。
+# 实际 backbone 选择优先看这个字段。
 adapter_type: sga_gsn
 
 feature_extractor:
   # 是否冻结 backbone 推理。
-  # 当前 FeatureExtractor.extract() / StabilityPredictor.predict_logit() 在 freeze=true 时走 eval + no_grad。
+  # 当前 encode() / predict_logit() 在 freeze=true 时走 eval + no_grad。
   freeze: true
 
 backbone:
-  # 文档化字段。adapter_type=sga_gsn 时真实 feature dim 由下方 runtime config 决定。
-  type: sga_gsn
-
-  # 占位文档字段。对于真实 SGA-GSN 路径，obs dim 会读取运行时 config 对应的 body feature dim。
+  # adapter_type=sga_gsn 时，真实 feature dim 由下方 runtime config 决定。
   latent_dim: 576
 
-  # backbone 内部 MLP 的隐藏层宽度。
+  # 仅 dgcnn fallback 路径使用。
   hidden_dim: 64
 
 predictor:
-  # 文档化的 predictor 类型。
-  # 当前 build_stability_predictor() 固定实例化 StabilityHead，没有按这个字段分支。
-  type: stability_head
-
-  # StabilityHead 内部隐藏层宽度。
+  # 仅 dgcnn fallback 路径使用。
   hidden_dim: 64
 
 contact_semantics:
@@ -48,4 +41,4 @@ sga_gsn:
     tactile_step: 8
     camera_distance_to_gel_m: 0.02315
     tactile_noise_eps: 0.0001
-    seed: 7
+    # 采样 seed 由 experiment.seed 统一注入。

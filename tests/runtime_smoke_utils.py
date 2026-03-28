@@ -13,6 +13,7 @@ import torch
 import yaml
 
 from src.runtime.builders import build_env as runtime_build_env
+from src.runtime.experiment_config import apply_experiment_overrides
 from src.utils.config import load_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -164,7 +165,7 @@ def load_real_training_bundle() -> tuple[dict, dict]:
         key: load_config(REPO_ROOT / relative_path)
         for key, relative_path in experiment_cfg.get("configs", {}).items()
     }
-    return deepcopy(experiment_cfg), bundle
+    return apply_experiment_overrides(deepcopy(experiment_cfg), bundle)
 
 
 def build_real_training_bundle(
@@ -185,7 +186,7 @@ def build_real_training_bundle(
     experiment_cfg["num_iterations"] = int(num_iterations)
     experiment_cfg.setdefault("logging", {})
     experiment_cfg["logging"]["log_dir"] = str((output_root / "logs").resolve())
-    experiment_cfg["logging"]["checkpoint_dir"] = str((output_root / "checkpoints").resolve())
+    experiment_cfg["logging"]["checkpoint_dir"] = str((output_root / "logs" / "checkpoints").resolve())
     experiment_cfg["logging"].setdefault("tensorboard", {})
     experiment_cfg["logging"]["tensorboard"]["dir"] = str((output_root / "logs" / "tensorboard").resolve())
     experiment_cfg["logging"].setdefault("sample_metrics", {})

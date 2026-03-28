@@ -3,6 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import traceback
 from multiprocessing.connection import Connection, wait
+from typing import Any
 
 import numpy as np
 import torch
@@ -365,6 +366,19 @@ class SubprocAsyncRolloutCollector:
             states.append(message)
         return sorted(states, key=lambda item: int(item["worker_id"]))
 
+    def get_worker_process_states(self) -> list[dict[str, Any]]:
+        states = []
+        for worker_id, process in enumerate(self._processes):
+            states.append(
+                {
+                    "worker_id": int(worker_id),
+                    "pid": None if process.pid is None else int(process.pid),
+                    "is_alive": bool(process.is_alive()),
+                    "exitcode": None if process.exitcode is None else int(process.exitcode),
+                }
+            )
+        return states
+
     def close(self) -> None:
         if self._closed:
             return
@@ -406,7 +420,7 @@ class SubprocAsyncRolloutCollector:
         try:
             message = conn.recv()
         except EOFError as exc:
-            raise RuntimeError("Worker pipe closed unexpectedly.") from exc
+            raise RuntimeError(self._build_unexpected_close_message(conn)) from exc
         if not isinstance(message, dict):
             raise RuntimeError(f"Worker returned non-dict payload: {message!r}")
         if message.get("type") == "error":
@@ -416,6 +430,25 @@ class SubprocAsyncRolloutCollector:
         if allow_closed and message.get("type") == "closed":
             return message
         return message
+
+    def _build_unexpected_close_message(self, conn: Connection) -> str:
+        worker_id = self._connection_to_worker.get(conn)
+        if worker_id is None:
+            return "Worker pipe closed unexpectedly."
+
+        process = self._processes[int(worker_id)]
+        process.join(timeout=0.05)
+        worker_state = {
+            "worker_id": int(worker_id),
+            "pid": None if process.pid is None else int(process.pid),
+            "is_alive": bool(process.is_alive()),
+            "exitcode": None if process.exitcode is None else int(process.exitcode),
+        }
+        all_states = self.get_worker_process_states()
+        return (
+            "Worker pipe closed unexpectedly. "
+            f"worker_state={worker_state}; all_worker_states={all_states}"
+        )
 
 
 def mp_context_time() -> float:

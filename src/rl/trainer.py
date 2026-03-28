@@ -8,6 +8,7 @@ import torch
 
 from src.rl.advantage import compute_returns_and_advantages
 from src.structures.action import NormalizedAction
+from src.utils.system_diagnostics import collect_system_metrics
 from src.utils.tensor_utils import action_tensor_to_numpy, observation_to_tensor
 
 
@@ -47,9 +48,9 @@ class Trainer:
             "rollout_version": -1,
         }
 
-    def train(self, num_iterations: int):
+    def train(self, num_iterations: int, *, start_iteration: int = 0, iteration_callback=None):
         history: list[dict[str, Any]] = []
-        for iteration in range(num_iterations):
+        for iteration in range(start_iteration, start_iteration + num_iterations):
             self.iteration = iteration
             iteration_start = time.perf_counter()
             collect_start = iteration_start
@@ -70,6 +71,15 @@ class Trainer:
             calibrator_post_state = self.update_calibrator(batch)
             update_wall_s = time.perf_counter() - update_start
             iteration_wall_s = time.perf_counter() - iteration_start
+            worker_process_states = (
+                self.collector.get_worker_process_states()
+                if self.collector is not None and hasattr(self.collector, "get_worker_process_states")
+                else None
+            )
+            system_stats = collect_system_metrics(
+                main_device=self.device,
+                worker_process_states=worker_process_states,
+            )
             rollout_stats = self._summarize_rollout(
                 batch=batch,
                 collection_report=collection_report,
@@ -78,12 +88,15 @@ class Trainer:
                     "timing/collect_wall_s": collect_wall_s,
                     "timing/update_wall_s": update_wall_s,
                     "timing/iteration_wall_s": iteration_wall_s,
+                    **system_stats,
                 },
             )
             stats = {**rollout_stats, **training_stats}
             self.log_iteration(stats)
             self._log_episode_samples(batch)
             history.append(stats)
+            if callable(iteration_callback):
+                iteration_callback(iteration=iteration, stats=stats, history_snapshot=list(history))
             self.buffer.clear()
         return history
 
@@ -188,7 +201,12 @@ class Trainer:
 
     def log_iteration(self, stats: dict):
         self.logger.log_dict(stats, step=self.iteration)
-        self.logger.info(f"Iteration {self.iteration}: {stats}")
+        format_payload = getattr(self.logger, "format_payload", None)
+        if callable(format_payload):
+            rendered_stats = format_payload(stats)
+        else:
+            rendered_stats = str(stats)
+        self.logger.info(f"Iteration {self.iteration}: {rendered_stats}")
 
     def _log_episode_samples(self, batch: dict) -> None:
         if not bool(getattr(self.logger, "sample_metrics_enabled", False)):

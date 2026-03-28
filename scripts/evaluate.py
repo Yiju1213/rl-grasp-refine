@@ -20,7 +20,7 @@ def main():
     perception_cfg = config_bundle["perception"]
     calibration_cfg = config_bundle["calibration"]
     actor_critic_cfg = config_bundle["actor_critic"]
-    set_seed(int(experiment_cfg.get("seed", env_cfg.get("seed", 0))))
+    set_seed(int(experiment_cfg.get("seed", 0)))
 
     env, _ = build_env(env_cfg, perception_cfg, calibration_cfg)
     actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
