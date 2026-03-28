@@ -40,6 +40,9 @@ class Logger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_path = self.log_dir / "metrics.jsonl"
         self.info_path = self.log_dir / "run.log"
+        self.metric_profile = str(cfg.get("metric_profile", "full") or "full").strip().lower()
+        diagnostics_cfg = dict(cfg.get("diagnostics", {}))
+        self.diagnostics_enabled = bool(diagnostics_cfg.get("enabled", True))
         tensorboard_cfg = dict(cfg.get("tensorboard", {}))
         self.tensorboard_enabled = bool(tensorboard_cfg.get("enabled", True))
         tensorboard_dir = tensorboard_cfg.get("dir", log_root / "tensorboard")
@@ -56,7 +59,8 @@ class Logger:
 
     def log_dict(self, stats: dict[str, Any], step: int) -> None:
         self._validate_stat_keys(stats)
-        rounded_stats = self._round_payload(stats)
+        filtered_stats = self._filter_stats(stats)
+        rounded_stats = self._round_payload(filtered_stats)
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "step": step,
@@ -65,7 +69,7 @@ class Logger:
         with self.metrics_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
         if self.writer is not None:
-            for key, value in stats.items():
+            for key, value in filtered_stats.items():
                 if isinstance(value, Number):
                     self.writer.add_scalar(key, float(value), step)
             self.writer.flush()
@@ -122,6 +126,65 @@ class Logger:
             return cls._round_number(payload)
         return payload
 
+    def format_payload(self, payload: Any) -> str:
+        if isinstance(payload, dict):
+            payload = self._filter_stats(payload)
+        return json.dumps(self._round_payload(payload), ensure_ascii=True)
+
+    def _filter_stats(self, stats: dict[str, Any]) -> dict[str, Any]:
+        if self.metric_profile == "full" and self.diagnostics_enabled:
+            return dict(stats)
+        return {key: value for key, value in stats.items() if self._should_keep_metric(str(key))}
+
+    def _should_keep_metric(self, key: str) -> bool:
+        if self.metric_profile == "paper":
+            return self._is_paper_metric(key)
+        if not self.diagnostics_enabled and self._is_diagnostic_metric(key):
+            return False
+        return True
+
+    @staticmethod
+    def _is_diagnostic_metric(key: str) -> bool:
+        return key.startswith("system/")
+
     @classmethod
-    def format_payload(cls, payload: Any) -> str:
-        return json.dumps(cls._round_payload(payload), ensure_ascii=True)
+    def _is_paper_metric(cls, key: str) -> bool:
+        if key == "timing/validation_wall_s":
+            return True
+        if key.startswith("validation/"):
+            return cls._is_paper_metric(key[len("validation/") :])
+        if key in {
+            "collection/attempts_total",
+            "collection/valid_episodes",
+            "collection/valid_rate",
+            "outcome/success_rate_live_after",
+            "outcome/success_rate_dataset_before",
+            "outcome/success_lift_vs_dataset",
+            "reward/total_mean",
+            "reward/drop_mean",
+            "reward/stability_mean",
+            "reward/contact_mean",
+            "calibrator/prob_before_mean",
+            "calibrator/prob_after_mean",
+            "calibrator/prob_delta_mean",
+            "calibrator/prob_delta_positive_rate",
+            "calibrator/posterior_trace_snapshot",
+            "calibrator/posterior_trace_post_update",
+            "calibrator/after_brier",
+            "ppo/policy_loss",
+            "ppo/value_loss",
+            "ppo/entropy",
+            "ppo/total_loss",
+            "ppo/approx_kl",
+            "ppo/clip_fraction",
+            "ppo/explained_variance",
+            "timing/collect_wall_s",
+            "timing/update_wall_s",
+            "timing/iteration_wall_s",
+        }:
+            return True
+        if key.startswith("outcome/trial_status_") and not key.startswith("outcome/trial_status_system_"):
+            return True
+        if key.startswith("contact/") and key.endswith("_mean"):
+            return True
+        return False

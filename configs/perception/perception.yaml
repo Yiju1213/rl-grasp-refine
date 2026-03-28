@@ -32,9 +32,9 @@ sga_gsn:
   runtime:
     source_root: /AdaPoinTr
     device: cuda:0
-    config_path: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx_LocalDensity_ValNoSC/config.yaml
+    config_path: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx/config.yaml
     shape_checkpoint: /AdaPoinTr/ckpts/ap_ps55.pth
-    grasp_checkpoint: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx_LocalDensity_ValNoSC/ckpt-best.pth
+    grasp_checkpoint: /AdaPoinTr/experiments/VTG_PPCT/3D_VTG_models/PPCT_BCEonly_vtEncDrop_8Dep_Vds_FeatEx/ckpt-best.pth
     vis_points: 2048
     tac_points_per_side: 1200
     sc_input_points: 2048

@@ -298,6 +298,9 @@ class AsyncDelayEnv:
         self.scene_rebuild_count += 1
         self.scene_generation += 1
 
+    def reset_sampling_sequence(self) -> None:
+        self.episode_index = 0
+
     def get_debug_snapshot(self) -> dict:
         return {
             "scene_rebuild_count": int(self.scene_rebuild_count),

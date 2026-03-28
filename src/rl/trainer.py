@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from src.rl.advantage import compute_returns_and_advantages
+from src.rl.rollout_buffer import RolloutBuffer
 from src.structures.action import NormalizedAction
 from src.utils.system_diagnostics import collect_system_metrics
 from src.utils.tensor_utils import action_tensor_to_numpy, observation_to_tensor
@@ -25,6 +26,9 @@ class Trainer:
         logger,
         cfg: dict,
         collector=None,
+        validation_env=None,
+        validation_collector=None,
+        validation_cfg: dict | None = None,
     ):
         self.env = env
         self.actor_critic = actor_critic
@@ -34,12 +38,21 @@ class Trainer:
         self.logger = logger
         self.cfg = cfg
         self.collector = collector
+        self.validation_env = validation_env
+        self.validation_collector = validation_collector
+        self.validation_cfg = dict(validation_cfg or {})
         self.observation_spec = getattr(actor_critic, "observation_spec", None)
         self.gamma = float(cfg.get("gamma", 0.99))
         self.lam = float(cfg.get("lam", 0.95))
         self.batch_episodes = int(cfg.get("batch_episodes", 32))
         self.max_collect_attempt_factor = int(cfg.get("max_collect_attempt_factor", 10))
         self.device = torch.device(cfg.get("device", "cpu"))
+        self.diagnostics_enabled = bool(getattr(logger, "diagnostics_enabled", True))
+        self.validation_enabled = bool(self.validation_cfg.get("enabled", False)) and (
+            self.validation_env is not None or self.validation_collector is not None
+        )
+        self.validation_every_n_iterations = max(int(self.validation_cfg.get("every_n_iterations", 1)), 1)
+        self.validation_num_episodes = max(int(self.validation_cfg.get("num_episodes", 0)), 0)
         self.iteration = 0
         self._last_collection_report: dict[str, Any] = {
             "attempts_total": 0,
@@ -79,16 +92,19 @@ class Trainer:
             training_stats = self.agent.update(batch)
             calibrator_post_state = self.update_calibrator(batch)
             update_wall_s = time.perf_counter() - update_start
+            validation_stats, validation_wall_s = self.run_validation(calibrator_state=calibrator_post_state)
             iteration_wall_s = time.perf_counter() - iteration_start
-            worker_process_states = (
-                self.collector.get_worker_process_states()
-                if self.collector is not None and hasattr(self.collector, "get_worker_process_states")
-                else None
-            )
-            system_stats = collect_system_metrics(
-                main_device=self.device,
-                worker_process_states=worker_process_states,
-            )
+            system_stats = {}
+            if self.diagnostics_enabled:
+                worker_process_states = (
+                    self.collector.get_worker_process_states()
+                    if self.collector is not None and hasattr(self.collector, "get_worker_process_states")
+                    else None
+                )
+                system_stats = collect_system_metrics(
+                    main_device=self.device,
+                    worker_process_states=worker_process_states,
+                )
             rollout_stats = self._summarize_rollout(
                 batch=batch,
                 collection_report=collection_report,
@@ -96,11 +112,12 @@ class Trainer:
                 timing_stats={
                     "timing/collect_wall_s": collect_wall_s,
                     "timing/update_wall_s": update_wall_s,
+                    "timing/validation_wall_s": validation_wall_s,
                     "timing/iteration_wall_s": iteration_wall_s,
                     **system_stats,
                 },
             )
-            stats = {**rollout_stats, **training_stats}
+            stats = {**rollout_stats, **training_stats, **validation_stats}
             self.log_iteration(stats)
             self._log_episode_samples(batch)
             history.append(stats)
@@ -142,23 +159,105 @@ class Trainer:
                 raw_logit_before=transition["raw_logit_before"],
                 raw_logit_after=transition["raw_logit_after"],
             )
-        return {
-            "attempts_total": int(payload["attempts_total"]),
-            "valid_episodes": int(payload["valid_episodes"]),
-            "attempt_summaries": list(payload.get("attempt_summaries", [])),
-            "rollout_version": int(payload["rollout_version"]),
-            "scene_rebuild_performed": int(payload.get("scene_rebuild_performed", 0)),
-            "scene_rebuild_workers": int(payload.get("scene_rebuild_workers", 0)),
-            "scene_rebuild_wall_s": float(payload.get("scene_rebuild_wall_s", 0.0)),
-            "worker_recycle_performed": int(payload.get("worker_recycle_performed", 0)),
-            "worker_recycle_slots": int(payload.get("worker_recycle_slots", 0)),
-            "worker_recycle_prefetched": int(payload.get("worker_recycle_prefetched", 0)),
-            "worker_recycle_prefetch_ready": int(payload.get("worker_recycle_prefetch_ready", 0)),
-            "worker_recycle_wall_s": float(payload.get("worker_recycle_wall_s", 0.0)),
-            "worker_recycle_wait_ready_wall_s": float(payload.get("worker_recycle_wait_ready_wall_s", 0.0)),
-        }
+        return self._collection_report_from_payload(payload)
 
     def _collect_rollout_single(self, num_episodes: int) -> dict[str, Any]:
+        return self._collect_into_buffer(env=self.env, target_buffer=self.buffer, num_episodes=num_episodes)
+
+    def update_calibrator(self, batch: dict | None = None) -> dict[str, Any]:
+        batch = self.buffer.get_all() if batch is None else batch
+        if batch["raw_logit_after"].size == 0:
+            return self.calibrator.get_state()
+        logits = batch["raw_logit_after"]
+        labels = np.asarray([info.drop_success for info in batch["infos"]], dtype=np.float32)
+        self.calibrator.update(logits, labels)
+        return self.calibrator.get_state()
+
+    def _sync_calibrator_to_env(self) -> None:
+        self._sync_calibrator_state_to_env(self.env, self.calibrator.get_state())
+
+    @staticmethod
+    def _sync_calibrator_state_to_env(env, state: dict[str, Any]) -> None:
+        sync_fn = getattr(env, "sync_calibrator", None)
+        if env is None or not callable(sync_fn):
+            return
+        sync_fn(state)
+
+    def _should_run_validation(self) -> bool:
+        return (
+            self.validation_enabled
+            and self.validation_num_episodes > 0
+            and (int(self.iteration) % self.validation_every_n_iterations) == 0
+        )
+
+    def run_validation(self, *, calibrator_state: dict[str, Any]) -> tuple[dict[str, float], float]:
+        if not self._should_run_validation():
+            return {}, 0.0
+
+        validation_start = time.perf_counter()
+        collect_start = validation_start
+        if self.validation_collector is not None:
+            report, batch = self._collect_validation_async(
+                num_episodes=self.validation_num_episodes,
+                calibrator_state=calibrator_state,
+            )
+        else:
+            self._sync_calibrator_state_to_env(self.validation_env, calibrator_state)
+            report, batch = self._collect_validation_single(num_episodes=self.validation_num_episodes)
+        collect_wall_s = time.perf_counter() - collect_start
+        stats = self._summarize_rollout(
+            batch=batch,
+            collection_report=report,
+            calibrator_post_state=calibrator_state,
+            timing_stats={"timing/collect_wall_s": collect_wall_s},
+            prefix="validation/",
+        )
+        return stats, time.perf_counter() - validation_start
+
+    def _collect_validation_async(
+        self,
+        *,
+        num_episodes: int,
+        calibrator_state: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        actor_state = {key: value.detach().cpu() for key, value in self.actor_critic.state_dict().items()}
+        payload = self.validation_collector.collect_batch(
+            target_valid_episodes=num_episodes,
+            actor_state=actor_state,
+            calibrator_state=calibrator_state,
+            obs_spec=self.observation_spec,
+            rollout_version=int(self.iteration),
+            reset_worker_sequences=True,
+        )
+        temp_buffer = RolloutBuffer()
+        for transition in payload["transitions"]:
+            temp_buffer.add(
+                obs=transition["obs"],
+                action=NormalizedAction(value=transition["action"]),
+                reward=transition["reward"],
+                next_obs=transition["next_obs"],
+                done=transition["done"],
+                log_prob=transition["log_prob"],
+                value=transition["value"],
+                info=transition["info"],
+                raw_logit_before=transition["raw_logit_before"],
+                raw_logit_after=transition["raw_logit_after"],
+            )
+        return self._collection_report_from_payload(payload), temp_buffer.get_all()
+
+    def _collect_validation_single(self, *, num_episodes: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        reset_fn = getattr(self.validation_env, "reset_sampling_sequence", None)
+        if callable(reset_fn):
+            reset_fn()
+        temp_buffer = RolloutBuffer()
+        report = self._collect_into_buffer(
+            env=self.validation_env,
+            target_buffer=temp_buffer,
+            num_episodes=num_episodes,
+        )
+        return report, temp_buffer.get_all()
+
+    def _collect_into_buffer(self, *, env, target_buffer, num_episodes: int) -> dict[str, Any]:
         episodes_collected = 0
         attempts = 0
         attempt_summaries: list[dict[str, Any]] = []
@@ -169,19 +268,19 @@ class Trainer:
                 raise RuntimeError(
                     f"Exceeded max rollout collection attempts ({max_attempts}) while collecting valid episodes."
                 )
-            obs = self.env.reset()
+            obs = env.reset()
             obs_tensor = observation_to_tensor(obs, spec=self.observation_spec).to(self.device)
             policy_start = time.perf_counter()
             with torch.no_grad():
                 action_tensor, log_prob, value, _ = self.actor_critic.act(obs_tensor)
             policy_forward_s = time.perf_counter() - policy_start
             action_np = action_tensor_to_numpy(action_tensor).reshape(-1)
-            next_obs, reward, done, info = self.env.step(NormalizedAction(value=action_np))
+            next_obs, reward, done, info = env.step(NormalizedAction(value=action_np))
             trial_metadata = info.extra.get("trial_metadata", {})
             attempt_summaries.append(self._build_attempt_summary(info=info, policy_forward_s=policy_forward_s, worker_id=0))
             if not bool(trial_metadata.get("valid_for_learning", True)):
                 continue
-            self.buffer.add(
+            target_buffer.add(
                 obs=obs,
                 action=NormalizedAction(value=action_np),
                 reward=reward,
@@ -210,21 +309,23 @@ class Trainer:
             "worker_recycle_wait_ready_wall_s": 0.0,
         }
 
-    def update_calibrator(self, batch: dict | None = None) -> dict[str, Any]:
-        batch = self.buffer.get_all() if batch is None else batch
-        if batch["raw_logit_after"].size == 0:
-            return self.calibrator.get_state()
-        logits = batch["raw_logit_after"]
-        labels = np.asarray([info.drop_success for info in batch["infos"]], dtype=np.float32)
-        self.calibrator.update(logits, labels)
-        return self.calibrator.get_state()
-
-    def _sync_calibrator_to_env(self) -> None:
-        get_state = getattr(self.calibrator, "get_state", None)
-        sync_fn = getattr(self.env, "sync_calibrator", None)
-        if not callable(get_state) or not callable(sync_fn):
-            return
-        sync_fn(get_state())
+    @staticmethod
+    def _collection_report_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "attempts_total": int(payload["attempts_total"]),
+            "valid_episodes": int(payload["valid_episodes"]),
+            "attempt_summaries": list(payload.get("attempt_summaries", [])),
+            "rollout_version": int(payload["rollout_version"]),
+            "scene_rebuild_performed": int(payload.get("scene_rebuild_performed", 0)),
+            "scene_rebuild_workers": int(payload.get("scene_rebuild_workers", 0)),
+            "scene_rebuild_wall_s": float(payload.get("scene_rebuild_wall_s", 0.0)),
+            "worker_recycle_performed": int(payload.get("worker_recycle_performed", 0)),
+            "worker_recycle_slots": int(payload.get("worker_recycle_slots", 0)),
+            "worker_recycle_prefetched": int(payload.get("worker_recycle_prefetched", 0)),
+            "worker_recycle_prefetch_ready": int(payload.get("worker_recycle_prefetch_ready", 0)),
+            "worker_recycle_wall_s": float(payload.get("worker_recycle_wall_s", 0.0)),
+            "worker_recycle_wait_ready_wall_s": float(payload.get("worker_recycle_wait_ready_wall_s", 0.0)),
+        }
 
     def log_iteration(self, stats: dict):
         self.logger.log_dict(stats, step=self.iteration)
@@ -312,6 +413,7 @@ class Trainer:
         collection_report: dict[str, Any],
         calibrator_post_state: dict[str, Any],
         timing_stats: dict[str, float],
+        prefix: str = "",
     ) -> dict[str, float]:
         rewards = np.asarray(batch["rewards"], dtype=np.float32)
         infos = list(batch["infos"])
@@ -385,7 +487,7 @@ class Trainer:
         brier = np.mean((prob_after - drop_success) ** 2) if prob_after.size else 0.0
         bce = np.mean(-(drop_success * np.log(clipped_prob_after) + (1.0 - drop_success) * np.log(1.0 - clipped_prob_after))) if prob_after.size else 0.0
 
-        stats = {
+        raw_stats = {
             "collection/attempts_total": float(collection_report.get("attempts_total", 0)),
             "collection/valid_episodes": float(collection_report.get("valid_episodes", 0)),
             "collection/valid_rate": float(collection_report.get("valid_episodes", 0)) / float(total_attempts),
@@ -441,5 +543,7 @@ class Trainer:
             **timing_stats,
         }
         for status, count in sorted(status_counts.items()):
-            stats[f"outcome/trial_status_{status}_rate"] = float(count) / float(total_attempts)
-        return stats
+            raw_stats[f"outcome/trial_status_{status}_rate"] = float(count) / float(total_attempts)
+        if not prefix:
+            return raw_stats
+        return {f"{prefix}{key}": value for key, value in raw_stats.items()}

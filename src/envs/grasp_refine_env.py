@@ -57,6 +57,16 @@ class GraspRefineEnv:
         self.raw_obs_before = None
         self.raw_obs_after = None
 
+    def reset_sampling_sequence(self) -> None:
+        reset_fn = getattr(self.sample_provider, "reset_sequence", None)
+        if callable(reset_fn):
+            reset_fn()
+        self.obs_before = None
+        self.grasp_pose_before = None
+        self.sample_cfg = None
+        self.raw_obs_before = None
+        self.raw_obs_after = None
+
     def reset(self) -> Observation:
         last_error: Exception | None = None
         for _ in range(self.max_reset_attempts):

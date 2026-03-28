@@ -329,6 +329,91 @@ class TestDatasetSampleProvider(unittest.TestCase):
             self.assertNotEqual(epoch_generation_0, epoch_generation_1)
             self.assertTrue(set(epoch_generation_1).isdisjoint(worker_1_generation_1))
 
+    def test_provider_filters_to_include_object_ids(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            for object_id, global_id in {(0, 10), (1, 20), (2, 30), (2, 31)}:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            provider = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 7,
+                    "include_object_ids": [1, 2],
+                    "metadata_cache_size": 1,
+                }
+            )
+
+            sampled_pairs = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider.sample() for _ in range(3))
+            ]
+            self.assertEqual(set(provider._object_entries.keys()), {1, 2})
+            self.assertTrue(all(object_id in {1, 2} for object_id, _ in sampled_pairs))
+
+    def test_provider_fixed_sample_sequence_resets_and_ignores_generation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            for object_id, global_id in {
+                (0, 10),
+                (0, 11),
+                (0, 12),
+                (0, 13),
+                (1, 20),
+                (1, 21),
+                (1, 22),
+                (1, 23),
+                (2, 30),
+                (2, 31),
+                (2, 32),
+                (2, 33),
+            }:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            provider_generation_0 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "fixed_sample_sequence": True,
+                    "fixed_sample_sequence_seed": 101,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 3,
+                    "worker_generation": 0,
+                    "metadata_cache_size": 1,
+                }
+            )
+            provider_generation_7 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "fixed_sample_sequence": True,
+                    "fixed_sample_sequence_seed": 101,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 3,
+                    "worker_generation": 7,
+                    "metadata_cache_size": 1,
+                }
+            )
+
+            first_pass = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_0.sample() for _ in range(4))
+            ]
+            provider_generation_0.reset_sequence()
+            second_pass = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_0.sample() for _ in range(4))
+            ]
+            generation_shifted_pass = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_7.sample() for _ in range(4))
+            ]
+
+            self.assertEqual(first_pass, second_pass)
+            self.assertEqual(first_pass, generation_shifted_pass)
+
 
 if __name__ == "__main__":
     unittest.main()

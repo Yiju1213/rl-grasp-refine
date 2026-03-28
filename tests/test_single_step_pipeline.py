@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import torch
 
 from src.rl.ppo_agent import PPOAgent
@@ -107,6 +108,41 @@ class TestSingleStepPipeline(unittest.TestCase):
         history = trainer.train(num_iterations=1, start_iteration=5)
         self.assertEqual(len(history), 1)
         self.assertTrue(any(step == 5 for step, _ in logger.records if isinstance(step, int)))
+
+    def test_validation_runs_without_mutating_actor_or_calibrator(self):
+        env, calibrator, _, _, _ = build_test_env()
+        validation_env, _, _, _, _ = build_test_env(seed=11)
+        obs_dim = observation_to_tensor(env.reset()).shape[-1]
+        actor_critic, _ = build_test_actor_critic(obs_dim)
+        trainer = Trainer(
+            env=env,
+            actor_critic=actor_critic,
+            agent=None,
+            buffer=RolloutBuffer(),
+            calibrator=calibrator,
+            logger=DummyLogger(),
+            cfg={"batch_episodes": 2, "device": "cpu", "max_collect_attempt_factor": 4},
+            validation_env=validation_env,
+            validation_cfg={"enabled": True, "every_n_iterations": 1, "num_episodes": 2},
+        )
+
+        trainer.iteration = 0
+        actor_state_before = {key: value.detach().clone() for key, value in actor_critic.state_dict().items()}
+        calibrator_state_before = calibrator.get_state()
+
+        validation_stats, validation_wall_s = trainer.run_validation(calibrator_state=calibrator.get_state())
+
+        self.assertGreaterEqual(validation_wall_s, 0.0)
+        self.assertIn("validation/outcome/success_rate_live_after", validation_stats)
+        self.assertIn("validation/reward/total_mean", validation_stats)
+        self.assertIn("validation/contact/t_cover_after_mean", validation_stats)
+        self.assertIn("validation/calibrator/prob_after_mean", validation_stats)
+        for key, value_before in actor_state_before.items():
+            self.assertTrue(torch.equal(value_before, actor_critic.state_dict()[key]))
+        calibrator_state_after = calibrator.get_state()
+        self.assertEqual(float(calibrator_state_before["a"]), float(calibrator_state_after["a"]))
+        self.assertEqual(float(calibrator_state_before["b"]), float(calibrator_state_after["b"]))
+        np.testing.assert_allclose(calibrator_state_before["posterior_cov"], calibrator_state_after["posterior_cov"])
 
 
 if __name__ == "__main__":

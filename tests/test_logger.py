@@ -102,6 +102,46 @@ class TestLogger(unittest.TestCase):
             self.assertEqual(stats["ppo/medium_value"], 0.123457)
             self.assertEqual(stats["ppo/small_value"], 0.00012346)
 
+    def test_paper_metric_profile_filters_debug_metrics_consistently(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            logger = Logger(
+                {
+                    "log_dir": str(root / "logs"),
+                    "metric_profile": "paper",
+                    "diagnostics": {"enabled": False},
+                    "tensorboard": {"enabled": False},
+                }
+            )
+
+            stats = {
+                "outcome/success_lift_vs_dataset": 0.1,
+                "reward/total_mean": 0.2,
+                "contact/t_cover_after_mean": 0.3,
+                "calibrator/after_brier": 0.4,
+                "ppo/approx_kl": 0.5,
+                "timing/validation_wall_s": 1.0,
+                "system/process_rss_mb": 123.0,
+                "action/saturation_rate": 0.6,
+                "collection/worker_recycle_performed": 1.0,
+                "calibrator/raw_logit_before_mean": 0.7,
+            }
+            logger.log_dict(stats, step=0)
+
+            payload = json.loads((root / "logs" / "metrics.jsonl").read_text(encoding="utf-8").strip())
+            filtered = payload["stats"]
+            self.assertIn("outcome/success_lift_vs_dataset", filtered)
+            self.assertIn("reward/total_mean", filtered)
+            self.assertIn("timing/validation_wall_s", filtered)
+            self.assertNotIn("system/process_rss_mb", filtered)
+            self.assertNotIn("action/saturation_rate", filtered)
+            self.assertNotIn("collection/worker_recycle_performed", filtered)
+            self.assertNotIn("calibrator/raw_logit_before_mean", filtered)
+
+            rendered = logger.format_payload(stats)
+            self.assertIn("outcome/success_lift_vs_dataset", rendered)
+            self.assertNotIn("system/process_rss_mb", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,14 @@ class DatasetSampleProvider:
         self.worker_id = int(cfg.get("worker_id", 0))
         self.num_workers = max(int(cfg.get("num_workers", 1)), 1)
         self.worker_generation = max(int(cfg.get("worker_generation", 0)), 0)
+        self.fixed_sample_sequence = bool(cfg.get("fixed_sample_sequence", False))
+        self.fixed_sample_sequence_seed = int(cfg.get("fixed_sample_sequence_seed", self.seed))
+        raw_include_object_ids = cfg.get("include_object_ids")
+        self.include_object_ids = (
+            {int(object_id) for object_id in raw_include_object_ids}
+            if raw_include_object_ids is not None
+            else None
+        )
         if self.worker_id < 0 or self.worker_id >= self.num_workers:
             raise ValueError(
                 f"worker_id must be in [0, num_workers). Got worker_id={self.worker_id}, "
@@ -36,6 +44,15 @@ class DatasetSampleProvider:
         # this as-is for now and revisit only if build/startup time becomes a bottleneck.
         self._object_entries = self._build_object_entries()
         self._epoch_sample_pairs: list[tuple[int, int]] = []
+        self._fixed_epoch_sample_pairs: tuple[tuple[int, int], ...] = ()
+        self._fixed_sequence_index = 0
+        if self.fixed_sample_sequence:
+            fixed_rng = __import__("numpy").random.default_rng(int(self.fixed_sample_sequence_seed))
+            self._fixed_epoch_sample_pairs = tuple(self._build_epoch_sample_pairs(rng=fixed_rng))
+            if not self._fixed_epoch_sample_pairs:
+                raise RuntimeError(
+                    f"No dataset samples assigned to worker {self.worker_id} out of {self.num_workers} workers."
+                )
 
     @staticmethod
     def _derive_shuffle_seed(base_seed: int, worker_generation: int) -> int:
@@ -50,6 +67,8 @@ class DatasetSampleProvider:
 
         for object_dir in object_dirs:
             object_id = int(object_dir.name)
+            if self.include_object_ids is not None and object_id not in self.include_object_ids:
+                continue
             metadata_path = object_dir / "_metadata.json"
             if not metadata_path.exists():
                 continue
@@ -77,25 +96,28 @@ class DatasetSampleProvider:
             self._metadata_cache.popitem(last=False)
         return metadata
 
-    def _build_epoch_sample_pairs(self) -> list[tuple[int, int]]:
+    def _build_epoch_sample_pairs(self, *, rng=None) -> list[tuple[int, int]]:
+        rng = rng if rng is not None else self.rng
         object_ids = list(self._object_entries.keys())
-        self.rng.shuffle(object_ids)
+        rng.shuffle(object_ids)
 
         blocks: list[list[tuple[int, int]]] = []
         for object_id in object_ids:
             shuffled_global_ids = list(self._object_entries[object_id])
-            self.rng.shuffle(shuffled_global_ids)
+            rng.shuffle(shuffled_global_ids)
             for start in range(0, len(shuffled_global_ids), self.object_block_size):
                 block_global_ids = shuffled_global_ids[start : start + self.object_block_size]
                 blocks.append([(int(object_id), int(global_id)) for global_id in block_global_ids])
 
-        self.rng.shuffle(blocks)
+        rng.shuffle(blocks)
         worker_blocks = blocks[self.worker_id :: self.num_workers]
         epoch_sample_pairs = [sample_pair for block in worker_blocks for sample_pair in block]
         epoch_sample_pairs.reverse()
         return epoch_sample_pairs
 
     def _prepare_next_epoch(self) -> None:
+        if self.fixed_sample_sequence:
+            return
         if self._epoch_sample_pairs:
             return
         self._epoch_sample_pairs = self._build_epoch_sample_pairs()
@@ -104,9 +126,19 @@ class DatasetSampleProvider:
                 f"No dataset samples assigned to worker {self.worker_id} out of {self.num_workers} workers."
             )
 
+    def reset_sequence(self) -> None:
+        if self.fixed_sample_sequence:
+            self._fixed_sequence_index = 0
+            return
+        self._epoch_sample_pairs = []
+
     def sample(self) -> dict[str, Any]:
-        self._prepare_next_epoch()
-        object_id, global_id = self._epoch_sample_pairs.pop()
+        if self.fixed_sample_sequence:
+            object_id, global_id = self._fixed_epoch_sample_pairs[self._fixed_sequence_index]
+            self._fixed_sequence_index = (self._fixed_sequence_index + 1) % len(self._fixed_epoch_sample_pairs)
+        else:
+            self._prepare_next_epoch()
+            object_id, global_id = self._epoch_sample_pairs.pop()
         metadata = self._load_object_metadata(object_id)
         entry = metadata[str(global_id)]
         return self._entry_to_sample_cfg(object_id=object_id, global_id=global_id, entry=entry)

@@ -201,6 +201,21 @@ def _async_rollout_worker(
                     break
                 continue
 
+            if cmd == "reset_sampling_sequence":
+                reset_fn = getattr(env, "reset_sampling_sequence", None)
+                if callable(reset_fn):
+                    reset_fn()
+                if not _safe_conn_send(
+                    conn,
+                    {
+                        "type": "sampling_sequence_reset",
+                        "worker_id": worker_id,
+                        "worker_generation": worker_generation,
+                    },
+                ):
+                    break
+                continue
+
             if cmd == "debug_state":
                 calibrator_state = None
                 get_state = getattr(getattr(env, "calibrator", None), "get_state", None)
@@ -328,6 +343,7 @@ class SubprocAsyncRolloutCollector:
         calibrator_state: dict,
         obs_spec: PolicyObservationSpec | None,
         rollout_version: int,
+        reset_worker_sequences: bool = False,
     ) -> dict:
         if self._closed:
             raise RuntimeError("Collector is already closed.")
@@ -357,6 +373,8 @@ class SubprocAsyncRolloutCollector:
             rollout_version=int(rollout_version),
             excluded_slot_ids=recycled_slot_ids,
         )
+        if bool(reset_worker_sequences):
+            self._reset_worker_sequences()
         actor_state_cpu = {
             key: value.detach().cpu().clone() if isinstance(value, torch.Tensor) else value
             for key, value in actor_state.items()
@@ -626,6 +644,14 @@ class SubprocAsyncRolloutCollector:
 
     def _count_ready_standbys(self) -> int:
         return sum(1 for record in self._standby_workers.values() if record.ready)
+
+    def _reset_worker_sequences(self) -> None:
+        for record in self._active_worker_records():
+            record.conn.send({"cmd": "reset_sampling_sequence"})
+        for record in self._active_worker_records():
+            message = self._recv_checked(record.conn)
+            if message.get("type") != "sampling_sequence_reset":
+                raise RuntimeError(f"Unexpected worker sampling reset payload: {message}")
 
     def _spawn_worker(
         self,
