@@ -29,15 +29,21 @@ def build_env(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
     env_cfg_local = deepcopy(env_cfg)
     if worker_seed is not None:
         env_cfg_local["seed"] = int(worker_seed)
     configure_render_environment(env_cfg_local.get("scene", {}))
+    scene_cfg = deepcopy(env_cfg_local.get("scene", {}))
 
     feature_extractor, contact_semantics_extractor, stability_predictor = build_perception_stack(perception_cfg)
     calibrator = calibrator or OnlineLogitCalibrator(calibration_cfg)
-    scene = PyBulletScene(env_cfg_local.get("scene", {}))
+
+    def scene_factory() -> PyBulletScene:
+        return PyBulletScene(deepcopy(scene_cfg))
+
+    scene = scene_factory()
 
     sample_provider = None
     dataset_cfg = deepcopy(env_cfg_local.get("dataset", {}))
@@ -46,6 +52,8 @@ def build_env(
             dataset_cfg["worker_id"] = int(worker_id)
         if num_workers is not None:
             dataset_cfg["num_workers"] = int(num_workers)
+        if worker_generation is not None:
+            dataset_cfg["worker_generation"] = int(worker_generation)
         sample_provider = DatasetSampleProvider(dataset_cfg)
 
     action_executor = ActionExecutor(env_cfg_local.get("action", {}))
@@ -59,6 +67,7 @@ def build_env(
     env = GraspRefineEnv(
         cfg=env_cfg_local,
         scene=scene,
+        scene_factory=scene_factory,
         action_executor=action_executor,
         observation_builder=observation_builder,
         reward_manager=reward_manager,

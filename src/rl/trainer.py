@@ -46,6 +46,15 @@ class Trainer:
             "valid_episodes": 0,
             "attempt_summaries": [],
             "rollout_version": -1,
+            "scene_rebuild_performed": 0,
+            "scene_rebuild_workers": 0,
+            "scene_rebuild_wall_s": 0.0,
+            "worker_recycle_performed": 0,
+            "worker_recycle_slots": 0,
+            "worker_recycle_prefetched": 0,
+            "worker_recycle_prefetch_ready": 0,
+            "worker_recycle_wall_s": 0.0,
+            "worker_recycle_wait_ready_wall_s": 0.0,
         }
 
     def train(self, num_iterations: int, *, start_iteration: int = 0, iteration_callback=None):
@@ -138,6 +147,15 @@ class Trainer:
             "valid_episodes": int(payload["valid_episodes"]),
             "attempt_summaries": list(payload.get("attempt_summaries", [])),
             "rollout_version": int(payload["rollout_version"]),
+            "scene_rebuild_performed": int(payload.get("scene_rebuild_performed", 0)),
+            "scene_rebuild_workers": int(payload.get("scene_rebuild_workers", 0)),
+            "scene_rebuild_wall_s": float(payload.get("scene_rebuild_wall_s", 0.0)),
+            "worker_recycle_performed": int(payload.get("worker_recycle_performed", 0)),
+            "worker_recycle_slots": int(payload.get("worker_recycle_slots", 0)),
+            "worker_recycle_prefetched": int(payload.get("worker_recycle_prefetched", 0)),
+            "worker_recycle_prefetch_ready": int(payload.get("worker_recycle_prefetch_ready", 0)),
+            "worker_recycle_wall_s": float(payload.get("worker_recycle_wall_s", 0.0)),
+            "worker_recycle_wait_ready_wall_s": float(payload.get("worker_recycle_wait_ready_wall_s", 0.0)),
         }
 
     def _collect_rollout_single(self, num_episodes: int) -> dict[str, Any]:
@@ -181,6 +199,15 @@ class Trainer:
             "valid_episodes": episodes_collected,
             "attempt_summaries": attempt_summaries,
             "rollout_version": int(self.iteration),
+            "scene_rebuild_performed": 0,
+            "scene_rebuild_workers": 0,
+            "scene_rebuild_wall_s": 0.0,
+            "worker_recycle_performed": 0,
+            "worker_recycle_slots": 0,
+            "worker_recycle_prefetched": 0,
+            "worker_recycle_prefetch_ready": 0,
+            "worker_recycle_wall_s": 0.0,
+            "worker_recycle_wait_ready_wall_s": 0.0,
         }
 
     def update_calibrator(self, batch: dict | None = None) -> dict[str, Any]:
@@ -362,6 +389,14 @@ class Trainer:
             "collection/attempts_total": float(collection_report.get("attempts_total", 0)),
             "collection/valid_episodes": float(collection_report.get("valid_episodes", 0)),
             "collection/valid_rate": float(collection_report.get("valid_episodes", 0)) / float(total_attempts),
+            "collection/scene_rebuild_performed": float(collection_report.get("scene_rebuild_performed", 0)),
+            "collection/scene_rebuild_workers": float(collection_report.get("scene_rebuild_workers", 0)),
+            "collection/worker_recycle_performed": float(collection_report.get("worker_recycle_performed", 0)),
+            "collection/worker_recycle_slots": float(collection_report.get("worker_recycle_slots", 0)),
+            "collection/worker_recycle_prefetched": float(collection_report.get("worker_recycle_prefetched", 0)),
+            "collection/worker_recycle_prefetch_ready": float(
+                collection_report.get("worker_recycle_prefetch_ready", 0)
+            ),
             "outcome/success_rate_live_after": _rate(drop_success),
             "outcome/success_rate_dataset_before": _finite_mean(dataset_before),
             "outcome/success_lift_vs_dataset": _rate(drop_success) - _finite_mean(dataset_before),
@@ -398,6 +433,11 @@ class Trainer:
             "action/l2_mean": _mean(np.linalg.norm(actions, axis=1)) if actions.size else 0.0,
             "action/saturation_rate": _rate(np.abs(actions) >= 0.999) if actions.size else 0.0,
             "timing/policy_forward_s_mean": _mean(policy_forward_values),
+            "timing/scene_rebuild_wall_s": float(collection_report.get("scene_rebuild_wall_s", 0.0)),
+            "timing/worker_recycle_wall_s": float(collection_report.get("worker_recycle_wall_s", 0.0)),
+            "timing/worker_recycle_wait_ready_wall_s": float(
+                collection_report.get("worker_recycle_wait_ready_wall_s", 0.0)
+            ),
             **timing_stats,
         }
         for status, count in sorted(status_counts.items()):

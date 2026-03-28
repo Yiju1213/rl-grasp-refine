@@ -57,7 +57,7 @@ class TestTrainScriptRealSGAGSN(unittest.TestCase):
             for key in ("actor_critic", "optimizer", "history", "calibrator", "experiment_cfg"):
                 self.assertIn(key, checkpoint)
             self.assertEqual(len(checkpoint["history"]), 1)
-            self.assertEqual(checkpoint["best_metric_name"], "outcome/success_rate_live_after")
+            self.assertEqual(checkpoint["best_metric_name"], "outcome/success_lift_vs_dataset")
 
             self.assertTrue((experiment_dir / "metrics.jsonl").exists())
             self.assertTrue((experiment_dir / "run.log").exists())

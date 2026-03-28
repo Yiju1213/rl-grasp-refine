@@ -10,6 +10,7 @@ from src.envs.asset_paths import resolve_object_urdf, resolve_scene_asset_paths
 from src.envs.scene_assets import (
     attach_object_to_tacto_sensor,
     create_tacto_sensor,
+    destroy_tacto_sensor,
     remove_object_body,
     remove_object_from_tacto_sensor,
     spawn_hand,
@@ -273,14 +274,35 @@ class PyBulletScene:
             )
 
     def close(self) -> None:
-        if self.client_id is not None:
-            pb.disconnect(self.client_id)
+        self._clear_object_constraint()
+        tacto_sensor = self.tacto_sensor
+        if tacto_sensor is not None:
+            destroy_tacto_sensor(tacto_sensor)
+        client_id = self.client_id
+        if client_id is not None:
+            try:
+                pb.disconnect(client_id)
+            except Exception:
+                pass
         self.client_id = None
+        self.sample_cfg = None
+        self.current_grasp_pose = None
+        self.initial_grasp_pose = None
+        self.before_raw_obs = None
         self.hand = None
         self.object_body = None
         self.tacto_sensor = None
         self.object_constraint_id = None
+        self._after_observation_ready = False
+        self._pending_trial_status = None
+        self._last_after_raw_obs = None
+        self._last_runtime_counters = {}
+        self._baseline_undesired_contact_count = 0
+        self._last_reset_debug = {}
+        self._last_refine_debug = {}
         self._loaded_source_object_id = None
+        self._last_object_action = None
+        self._last_tacto_action = None
 
     def get_debug_snapshot(self) -> dict[str, Any]:
         return {
@@ -378,8 +400,11 @@ class PyBulletScene:
         elif self._loaded_source_object_id != target_object_id:
             self._set_gui_rendering_enabled(False)
             try:
-                remove_object_from_tacto_sensor(self.tacto_sensor, self.object_body.id)
-                remove_object_body(self.object_body.id, self.client_id)
+                old_object_body = self.object_body
+                remove_object_from_tacto_sensor(self.tacto_sensor, old_object_body.id)
+                remove_object_body(old_object_body.id, self.client_id)
+                self.object_body = None
+                self._loaded_source_object_id = None
                 self.object_body = spawn_object(
                     self.asset_paths,
                     object_id=target_object_id,

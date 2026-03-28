@@ -51,6 +51,8 @@ class TestSingleStepPipeline(unittest.TestCase):
         for key in (
             "collection/attempts_total",
             "collection/valid_episodes",
+            "collection/scene_rebuild_performed",
+            "collection/scene_rebuild_workers",
             "outcome/success_rate_live_after",
             "reward/total_mean",
             "contact/t_cover_after_mean",
@@ -58,6 +60,7 @@ class TestSingleStepPipeline(unittest.TestCase):
             "ppo/policy_loss",
             "ppo/clip_fraction",
             "ppo/grad_norm",
+            "timing/scene_rebuild_wall_s",
             "timing/iteration_wall_s",
             "system/process_rss_mb",
             "system/process_vms_mb",

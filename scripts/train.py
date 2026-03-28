@@ -150,7 +150,7 @@ def main():
         )
         best_cfg = dict(experiment_cfg.get("logging", {}).get("best_checkpoint", {}))
         best_enabled = bool(best_cfg.get("enabled", True))
-        best_metric_name = str(best_cfg.get("metric", best_metric_name or "outcome/success_rate_live_after"))
+        best_metric_name = str(best_cfg.get("metric", best_metric_name or "outcome/success_lift_vs_dataset"))
         best_metric_mode = str(best_cfg.get("mode", best_metric_mode or "max")).lower()
         best_filename = str(best_cfg.get("filename", "best.pt"))
 

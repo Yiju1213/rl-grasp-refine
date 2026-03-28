@@ -33,4 +33,39 @@ def apply_experiment_overrides(experiment_cfg: dict[str, Any], bundle: dict[str,
     if experiment_name:
         logging_cfg.setdefault("experiment_name", experiment_name)
 
+    scene_rebuild_every_n_iterations = experiment_cfg_local.get("scene_rebuild_every_n_iterations")
+    if scene_rebuild_every_n_iterations is not None:
+        rl_cfg = bundle_local.get("rl")
+        if isinstance(rl_cfg, dict):
+            rl_cfg["scene_rebuild_every_n_iterations"] = max(int(scene_rebuild_every_n_iterations), 0)
+
+    recycle_override_keys = (
+        "worker_recycle_every_n_iterations",
+        "worker_recycle_slots_per_event",
+        "worker_recycle_enable_standby_prefetch",
+        "worker_recycle_prefetch_count",
+    )
+    if any(key in experiment_cfg_local for key in recycle_override_keys):
+        rl_cfg = bundle_local.get("rl")
+        if isinstance(rl_cfg, dict):
+            if "worker_recycle_every_n_iterations" in experiment_cfg_local:
+                rl_cfg["worker_recycle_every_n_iterations"] = max(
+                    int(experiment_cfg_local["worker_recycle_every_n_iterations"]),
+                    0,
+                )
+            if "worker_recycle_slots_per_event" in experiment_cfg_local:
+                rl_cfg["worker_recycle_slots_per_event"] = max(
+                    int(experiment_cfg_local["worker_recycle_slots_per_event"]),
+                    1,
+                )
+            if "worker_recycle_enable_standby_prefetch" in experiment_cfg_local:
+                rl_cfg["worker_recycle_enable_standby_prefetch"] = bool(
+                    experiment_cfg_local["worker_recycle_enable_standby_prefetch"]
+                )
+            if "worker_recycle_prefetch_count" in experiment_cfg_local:
+                rl_cfg["worker_recycle_prefetch_count"] = max(
+                    int(experiment_cfg_local["worker_recycle_prefetch_count"]),
+                    0,
+                )
+
     return experiment_cfg_local, bundle_local

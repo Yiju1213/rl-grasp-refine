@@ -22,18 +22,25 @@ class DatasetSampleProvider:
         self.object_block_size = max(int(cfg.get("object_block_size", 4)), 1)
         self.worker_id = int(cfg.get("worker_id", 0))
         self.num_workers = max(int(cfg.get("num_workers", 1)), 1)
+        self.worker_generation = max(int(cfg.get("worker_generation", 0)), 0)
         if self.worker_id < 0 or self.worker_id >= self.num_workers:
             raise ValueError(
                 f"worker_id must be in [0, num_workers). Got worker_id={self.worker_id}, "
                 f"num_workers={self.num_workers}."
             )
         self.runtime_defaults = cfg.get("runtime_defaults", {})
-        self.rng = __import__("numpy").random.default_rng(self.seed)
+        shuffle_seed = self._derive_shuffle_seed(self.seed, self.worker_generation)
+        self.rng = __import__("numpy").random.default_rng(shuffle_seed)
         self._metadata_cache: OrderedDict[int, dict[str, Any]] = OrderedDict()
         # TODO: Provider startup is still dominated by eager metadata indexing. Leave
         # this as-is for now and revisit only if build/startup time becomes a bottleneck.
         self._object_entries = self._build_object_entries()
         self._epoch_sample_pairs: list[tuple[int, int]] = []
+
+    @staticmethod
+    def _derive_shuffle_seed(base_seed: int, worker_generation: int) -> int:
+        modulus = 2**32
+        return int((int(base_seed) + int(worker_generation) * 9_000_019) % modulus)
 
     def _build_object_entries(self) -> dict[int, list[int]]:
         object_entries: dict[int, list[int]] = {}

@@ -94,6 +94,7 @@ def make_rl_cfg() -> dict:
         "max_grad_norm": 0.5,
         "normalize_advantages": True,
         "max_collect_attempt_factor": 10,
+        "scene_rebuild_every_n_iterations": 0,
         "num_envs": 1,
     }
 
@@ -108,11 +109,16 @@ def make_actor_critic_cfg() -> dict:
 
 
 class FakeScene:
+    _next_instance_id = 0
+
     def __init__(self, cfg: dict | None = None):
         self.cfg = cfg or {}
         self.sample_cfg = None
         self.current_pose = None
         self.target_pose = None
+        self.closed = False
+        self.instance_id = int(FakeScene._next_instance_id)
+        FakeScene._next_instance_id += 1
 
     def reset_scene(self, sample_cfg: dict) -> None:
         self.sample_cfg = deepcopy(sample_cfg)
@@ -172,6 +178,7 @@ class FakeScene:
         }
 
     def close(self) -> None:
+        self.closed = True
         return None
 
 
@@ -181,9 +188,11 @@ def build_test_env(seed: int = 7):
     calibration_cfg = make_calibration_cfg()
     feature_extractor, contact_semantics_extractor, stability_predictor = build_perception_stack(perception_cfg)
     calibrator = OnlineLogitCalibrator(calibration_cfg)
+    scene_factory = FakeScene
     env = GraspRefineEnv(
         cfg=env_cfg,
-        scene=FakeScene(),
+        scene=scene_factory(),
+        scene_factory=scene_factory,
         action_executor=ActionExecutor(env_cfg["action"]),
         observation_builder=ObservationBuilder(
             feature_extractor=feature_extractor,
@@ -204,8 +213,9 @@ def build_test_env_for_worker(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
-    del env_cfg, perception_cfg, calibration_cfg, worker_id, num_workers
+    del env_cfg, perception_cfg, calibration_cfg, worker_id, num_workers, worker_generation
     env, _, _, _, _ = build_test_env(seed=int(worker_seed or 7))
     return env
 
@@ -223,6 +233,8 @@ class AsyncDelayEnv:
         self.delay_schedules = delay_schedules or {}
         self.invalid_attempts = dict(invalid_attempts or {})
         self.episode_index = 0
+        self.scene_rebuild_count = 0
+        self.scene_generation = 0
 
     def reset(self):
         base = 0.1 + 0.05 * self.worker_id + 0.01 * self.episode_index
@@ -282,6 +294,17 @@ class AsyncDelayEnv:
     def sync_calibrator(self, state: dict) -> None:
         self.calibrator.load_state(state)
 
+    def rebuild_scene(self) -> None:
+        self.scene_rebuild_count += 1
+        self.scene_generation += 1
+
+    def get_debug_snapshot(self) -> dict:
+        return {
+            "scene_rebuild_count": int(self.scene_rebuild_count),
+            "scene_generation": int(self.scene_generation),
+            "episode_index": int(self.episode_index),
+        }
+
     def close(self) -> None:
         return None
 
@@ -293,8 +316,14 @@ def build_async_delay_env_for_worker(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
     del perception_cfg, num_workers, worker_seed
+    startup_delays = deepcopy(env_cfg.get("startup_delays", {}))
+    delay_key = f"{int(worker_id or 0)}:{int(worker_generation or 0)}"
+    startup_delay = float(startup_delays.get(delay_key, startup_delays.get(int(worker_id or 0), 0.0)))
+    if startup_delay > 0.0:
+        time.sleep(startup_delay)
     return AsyncDelayEnv(
         worker_id=int(worker_id or 0),
         calibration_cfg=calibration_cfg,

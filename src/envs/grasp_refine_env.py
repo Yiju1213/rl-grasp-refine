@@ -25,9 +25,11 @@ class GraspRefineEnv:
         calibrator,
         termination,
         sample_provider=None,
+        scene_factory=None,
     ):
         self.cfg = cfg
         self.scene: PyBulletScene = scene
+        self.scene_factory = scene_factory
         self.action_executor = action_executor
         self.observation_builder: ObservationBuilder = observation_builder
         self.reward_manager = reward_manager
@@ -41,6 +43,19 @@ class GraspRefineEnv:
         self.raw_obs_before = None
         self.raw_obs_after = None
         self.max_reset_attempts = int(cfg.get("max_reset_attempts", 32))
+
+    def rebuild_scene(self) -> None:
+        if not callable(self.scene_factory):
+            raise RuntimeError("Environment scene factory is not configured; scene rebuild is unavailable.")
+        close_fn = getattr(self.scene, "close", None)
+        if callable(close_fn):
+            close_fn()
+        self.scene = self.scene_factory()
+        self.obs_before = None
+        self.grasp_pose_before = None
+        self.sample_cfg = None
+        self.raw_obs_before = None
+        self.raw_obs_after = None
 
     def reset(self) -> Observation:
         last_error: Exception | None = None

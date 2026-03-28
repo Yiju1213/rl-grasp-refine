@@ -69,6 +69,7 @@ def build_env(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
     calibrator = calibrator or OnlineLogitCalibrator(calibration_cfg)
     return runtime_build_env(
@@ -79,6 +80,7 @@ def build_env(
         worker_id=worker_id,
         num_workers=num_workers,
         worker_seed=worker_seed,
+        worker_generation=worker_generation,
     )
 
 

@@ -359,6 +359,7 @@ def build_instrumented_real_env_for_worker(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
     env, _ = runtime_build_env(
         env_cfg=env_cfg,
@@ -367,5 +368,6 @@ def build_instrumented_real_env_for_worker(
         worker_id=worker_id,
         num_workers=num_workers,
         worker_seed=worker_seed,
+        worker_generation=worker_generation,
     )
     return InstrumentedRealEnvProxy(env)

@@ -128,6 +128,313 @@ class TestAsyncRolloutCollector(unittest.TestCase):
         finally:
             collector.close()
 
+    def test_collect_batch_rebuilds_worker_scenes_from_second_batch(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        rl_cfg["scene_rebuild_every_n_iterations"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            first_payload = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=0,
+            )
+            second_payload = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+            )
+            self.assertEqual(first_payload["scene_rebuild_performed"], 0)
+            self.assertEqual(first_payload["scene_rebuild_workers"], 0)
+            self.assertEqual(first_payload["scene_rebuild_wall_s"], 0.0)
+            self.assertEqual(second_payload["scene_rebuild_performed"], 1)
+            self.assertEqual(second_payload["scene_rebuild_workers"], 2)
+            self.assertGreaterEqual(second_payload["scene_rebuild_wall_s"], 0.0)
+
+            debug_states = collector.get_worker_debug_states()
+            for state in debug_states:
+                self.assertEqual(state["debug_snapshot"]["scene_rebuild_count"], 1)
+                self.assertEqual(state["debug_snapshot"]["scene_generation"], 1)
+                self.assertEqual(state["rollout_version"], 1)
+        finally:
+            collector.close()
+
+    def test_collect_batch_rebuilds_every_n_iterations(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        rl_cfg["scene_rebuild_every_n_iterations"] = 2
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            payload_0 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=0,
+            )
+            payload_1 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+            )
+            debug_states_after_first_recycle = {
+                int(item["worker_id"]): int(item["worker_generation"])
+                for item in collector.get_worker_debug_states()
+            }
+            payload_2 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=2,
+            )
+
+            self.assertEqual(payload_0["scene_rebuild_performed"], 0)
+            self.assertEqual(payload_1["scene_rebuild_performed"], 0)
+            self.assertEqual(payload_2["scene_rebuild_performed"], 1)
+
+            debug_states = collector.get_worker_debug_states()
+            for state in debug_states:
+                self.assertEqual(state["debug_snapshot"]["scene_rebuild_count"], 1)
+                self.assertEqual(state["debug_snapshot"]["scene_generation"], 1)
+                self.assertEqual(state["rollout_version"], 2)
+        finally:
+            collector.close()
+
+    def test_collect_batch_recycles_oldest_worker_slots_fifo_with_prefetch(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        rl_cfg["worker_recycle_every_n_iterations"] = 1
+        rl_cfg["worker_recycle_slots_per_event"] = 1
+        rl_cfg["worker_recycle_enable_standby_prefetch"] = True
+        rl_cfg["worker_recycle_prefetch_count"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            payload_0 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=0,
+            )
+            payload_1 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+            )
+            debug_states_after_first_recycle = {
+                int(item["worker_id"]): int(item["worker_generation"])
+                for item in collector.get_worker_debug_states()
+            }
+            payload_2 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=2,
+            )
+
+            self.assertEqual(payload_0["worker_recycle_performed"], 0)
+            self.assertEqual(payload_0["worker_recycle_prefetched"], 1)
+            self.assertEqual(payload_1["worker_recycle_performed"], 1)
+            self.assertEqual(payload_1["worker_recycle_slots"], 1)
+            self.assertEqual(payload_1["worker_recycle_prefetched"], 1)
+            self.assertEqual(debug_states_after_first_recycle[0], 1)
+            self.assertEqual(debug_states_after_first_recycle[1], 0)
+            self.assertEqual(payload_2["worker_recycle_performed"], 1)
+            self.assertEqual(payload_2["worker_recycle_slots"], 1)
+
+            debug_states_after_second_recycle = {
+                int(item["worker_id"]): int(item["worker_generation"])
+                for item in collector.get_worker_debug_states()
+            }
+            self.assertEqual(debug_states_after_second_recycle[0], 1)
+            self.assertEqual(debug_states_after_second_recycle[1], 1)
+        finally:
+            collector.close()
+
+    def test_collect_batch_waits_for_prefetched_worker_to_be_ready(self):
+        env_cfg = make_env_cfg()
+        env_cfg["startup_delays"] = {"0:1": 0.5}
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        rl_cfg["worker_recycle_every_n_iterations"] = 1
+        rl_cfg["worker_recycle_slots_per_event"] = 1
+        rl_cfg["worker_recycle_enable_standby_prefetch"] = True
+        rl_cfg["worker_recycle_prefetch_count"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            payload_0 = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=0,
+            )
+            payload_1 = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+            )
+
+            self.assertEqual(payload_0["worker_recycle_prefetched"], 1)
+            self.assertEqual(payload_0["worker_recycle_prefetch_ready"], 0)
+            self.assertEqual(payload_1["worker_recycle_performed"], 1)
+            self.assertGreater(payload_1["worker_recycle_wait_ready_wall_s"], 0.1)
+        finally:
+            collector.close()
+
+    def test_collect_batch_recycles_before_scene_rebuild(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        rl_cfg["scene_rebuild_every_n_iterations"] = 1
+        rl_cfg["worker_recycle_every_n_iterations"] = 1
+        rl_cfg["worker_recycle_slots_per_event"] = 1
+        rl_cfg["worker_recycle_enable_standby_prefetch"] = True
+        rl_cfg["worker_recycle_prefetch_count"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=0,
+            )
+            payload_1 = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+            )
+
+            self.assertEqual(payload_1["worker_recycle_performed"], 1)
+            self.assertEqual(payload_1["scene_rebuild_performed"], 1)
+            self.assertEqual(payload_1["scene_rebuild_workers"], 1)
+
+            debug_states = {int(item["worker_id"]): item for item in collector.get_worker_debug_states()}
+            self.assertEqual(int(debug_states[0]["worker_generation"]), 1)
+            self.assertEqual(int(debug_states[0]["debug_snapshot"]["scene_rebuild_count"]), 0)
+            self.assertEqual(int(debug_states[1]["worker_generation"]), 0)
+            self.assertEqual(int(debug_states[1]["debug_snapshot"]["scene_rebuild_count"]), 1)
+        finally:
+            collector.close()
+
 
 if __name__ == "__main__":
     unittest.main()

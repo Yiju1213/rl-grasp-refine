@@ -48,8 +48,9 @@ def build_exploding_env_for_worker(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
-    del env_cfg, perception_cfg, worker_id, num_workers, worker_seed
+    del env_cfg, perception_cfg, worker_id, num_workers, worker_seed, worker_generation
     return _ExplodingEnv(calibration_cfg)
 
 
@@ -60,8 +61,9 @@ def build_abrupt_exit_env_for_worker(
     worker_id: int | None = None,
     num_workers: int | None = None,
     worker_seed: int | None = None,
+    worker_generation: int | None = None,
 ):
-    del env_cfg, perception_cfg, worker_id, num_workers, worker_seed
+    del env_cfg, perception_cfg, worker_id, num_workers, worker_seed, worker_generation
     return _AbruptExitEnv(calibration_cfg)
 
 

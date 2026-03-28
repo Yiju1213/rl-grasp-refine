@@ -238,6 +238,97 @@ class TestDatasetSampleProvider(unittest.TestCase):
 
             self.assertEqual(len({tuple(order) for order in epoch_orders}), len(epoch_orders))
 
+    def test_provider_generation_changes_shuffle_but_preserves_slot_shard(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            expected_pairs = {
+                (0, 10),
+                (0, 11),
+                (0, 12),
+                (0, 13),
+                (1, 20),
+                (1, 21),
+                (1, 22),
+                (1, 23),
+                (2, 30),
+                (2, 31),
+                (2, 32),
+                (2, 33),
+            }
+            for object_id, global_id in expected_pairs:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            provider_generation_0 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 3,
+                    "worker_generation": 0,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+            provider_generation_0_again = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 3,
+                    "worker_generation": 0,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+            provider_generation_1 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 3,
+                    "worker_generation": 1,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+            provider_worker_1_generation_1 = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 11,
+                    "object_block_size": 2,
+                    "worker_id": 1,
+                    "num_workers": 3,
+                    "worker_generation": 1,
+                    "metadata_cache_size": 1,
+                    "runtime_defaults": {"time_step": 0.005},
+                }
+            )
+
+            samples_per_worker = len(expected_pairs) // 3
+            epoch_generation_0 = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_0.sample() for _ in range(samples_per_worker))
+            ]
+            epoch_generation_0_again = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_0_again.sample() for _ in range(samples_per_worker))
+            ]
+            epoch_generation_1 = [
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_generation_1.sample() for _ in range(samples_per_worker))
+            ]
+            worker_1_generation_1 = {
+                (sample["source"]["object_id"], sample["source"]["global_id"])
+                for sample in (provider_worker_1_generation_1.sample() for _ in range(samples_per_worker))
+            }
+
+            self.assertEqual(epoch_generation_0, epoch_generation_0_again)
+            self.assertNotEqual(epoch_generation_0, epoch_generation_1)
+            self.assertTrue(set(epoch_generation_1).isdisjoint(worker_1_generation_1))
+
 
 if __name__ == "__main__":
     unittest.main()
