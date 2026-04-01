@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -41,9 +42,8 @@ class PolicyObservationSpec:
         return infer_obs_dim_from_spec(self)
 
 
-def resolve_policy_observation_spec(perception_cfg: dict, actor_critic_cfg: dict) -> PolicyObservationSpec:
-    latent_dim = int(infer_perception_feature_dim(perception_cfg))
-    policy_obs_cfg = dict(actor_critic_cfg.get("policy_observation", {}))
+def resolve_policy_observation_components(policy_observation_cfg: dict[str, Any] | None) -> tuple[tuple[str, ...], str]:
+    policy_obs_cfg = dict(policy_observation_cfg or {})
     preset = str(policy_obs_cfg.get("preset", "current"))
     components_cfg = policy_obs_cfg.get("components")
 
@@ -52,20 +52,24 @@ def resolve_policy_observation_spec(perception_cfg: dict, actor_critic_cfg: dict
             raise ValueError(
                 f"Unknown policy_observation preset '{preset}'. Expected one of {sorted(_PRESET_COMPONENTS)}."
             )
-        components = tuple(_PRESET_COMPONENTS[preset])
-        resolved_preset = preset
-    else:
-        requested = set(components_cfg)
-        unknown = requested.difference(POLICY_OBSERVATION_COMPONENTS)
-        if unknown:
-            raise ValueError(
-                f"Unknown policy_observation components: {sorted(unknown)}. "
-                f"Expected subset of {POLICY_OBSERVATION_COMPONENTS}."
-            )
-        components = tuple(component for component in POLICY_OBSERVATION_COMPONENTS if component in requested)
-        if not components:
-            raise ValueError("policy_observation.components cannot be empty.")
-        resolved_preset = "custom"
+        return tuple(_PRESET_COMPONENTS[preset]), preset
+
+    requested = set(components_cfg)
+    unknown = requested.difference(POLICY_OBSERVATION_COMPONENTS)
+    if unknown:
+        raise ValueError(
+            f"Unknown policy_observation components: {sorted(unknown)}. "
+            f"Expected subset of {POLICY_OBSERVATION_COMPONENTS}."
+        )
+    components = tuple(component for component in POLICY_OBSERVATION_COMPONENTS if component in requested)
+    if not components:
+        raise ValueError("policy_observation.components cannot be empty.")
+    return components, "custom"
+
+
+def resolve_policy_observation_spec(perception_cfg: dict, actor_critic_cfg: dict) -> PolicyObservationSpec:
+    latent_dim = int(infer_perception_feature_dim(perception_cfg))
+    components, resolved_preset = resolve_policy_observation_components(actor_critic_cfg.get("policy_observation", {}))
 
     return PolicyObservationSpec(
         latent_dim=latent_dim,
@@ -101,4 +105,3 @@ def flatten_single_observation(obs: Observation, spec: PolicyObservationSpec) ->
             raise ValueError(f"Unsupported policy observation component: {component}")
 
     return np.concatenate(components, axis=0)
-

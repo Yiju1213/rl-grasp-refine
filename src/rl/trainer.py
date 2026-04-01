@@ -439,6 +439,18 @@ class Trainer:
             arr = arr[np.isfinite(arr)]
             return float(np.mean(arr)) if arr.size else 0.0
 
+        def _masked_rate(values, mask, *, predicate=None) -> float:
+            arr = np.asarray(values, dtype=np.float32)
+            mask_arr = np.asarray(mask, dtype=bool)
+            if arr.size == 0 or mask_arr.size == 0 or arr.shape[0] != mask_arr.shape[0]:
+                return 0.0
+            selected = arr[mask_arr]
+            if selected.size == 0:
+                return 0.0
+            if predicate is not None:
+                selected = predicate(selected)
+            return float(np.mean(np.asarray(selected, dtype=np.float32)))
+
         if infos:
             t_before = np.stack([obs.contact_semantic for obs in batch["obs"]], axis=0)
             t_after = np.stack([obs.contact_semantic for obs in batch["next_obs"]], axis=0)
@@ -471,6 +483,11 @@ class Trainer:
             raw_logit_after = np.zeros((0,), dtype=np.float32)
             posterior_trace_snapshot = np.zeros((0,), dtype=np.float32)
 
+        dataset_positive_mask = np.isfinite(dataset_before) & (dataset_before >= 0.5)
+        dataset_negative_mask = np.isfinite(dataset_before) & (dataset_before < 0.5)
+        dataset_positive_count = int(np.sum(dataset_positive_mask))
+        dataset_negative_count = int(np.sum(dataset_negative_mask))
+
         total_attempts = max(int(collection_report.get("attempts_total", 0)), 1)
         status_counts: dict[str, int] = {}
         system_invalid_count = 0
@@ -502,6 +519,18 @@ class Trainer:
             "outcome/success_rate_live_after": _rate(drop_success),
             "outcome/success_rate_dataset_before": _finite_mean(dataset_before),
             "outcome/success_lift_vs_dataset": _rate(drop_success) - _finite_mean(dataset_before),
+            "outcome/drop_rate_after_given_dataset_positive": _masked_rate(
+                drop_success,
+                dataset_positive_mask,
+                predicate=lambda arr: arr < 0.5,
+            ),
+            "outcome/hold_rate_after_given_dataset_negative": _masked_rate(
+                drop_success,
+                dataset_negative_mask,
+                predicate=lambda arr: arr >= 0.5,
+            ),
+            "outcome/dataset_positive_count": float(dataset_positive_count),
+            "outcome/dataset_negative_count": float(dataset_negative_count),
             "outcome/system_invalid_rate": float(system_invalid_count) / float(total_attempts),
             "reward/total_mean": _mean(rewards),
             "reward/total_std": _std(rewards),

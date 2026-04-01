@@ -36,6 +36,19 @@ class TestCalibrator(unittest.TestCase):
         self.assertAlmostEqual(prob_a, prob_b, places=7)
         self.assertAlmostEqual(calibrator.posterior_trace(), restored.posterior_trace(), places=7)
 
+    def test_update_can_be_disabled_without_changing_state(self):
+        calibration_cfg = make_calibration_cfg()
+        calibration_cfg["online_update_enabled"] = False
+        calibrator = OnlineLogitCalibrator(calibration_cfg)
+        state_before = calibrator.get_state()
+
+        calibrator.update(np.asarray([-1.0, 0.0, 1.0]), np.asarray([0, 0, 1]))
+        state_after = calibrator.get_state()
+
+        self.assertEqual(float(state_before["a"]), float(state_after["a"]))
+        self.assertEqual(float(state_before["b"]), float(state_after["b"]))
+        np.testing.assert_allclose(state_before["posterior_cov"], state_after["posterior_cov"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,3 +43,4 @@ src/envs/object_model
 src/envs/assets
 docs/rl-regrasp
 docs/reward-group.md
+docs/train-result

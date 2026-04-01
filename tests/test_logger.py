@@ -116,6 +116,9 @@ class TestLogger(unittest.TestCase):
 
             stats = {
                 "outcome/success_lift_vs_dataset": 0.1,
+                "outcome/drop_rate_after_given_dataset_positive": 0.25,
+                "outcome/hold_rate_after_given_dataset_negative": 0.75,
+                "outcome/dataset_positive_count": 12.0,
                 "reward/total_mean": 0.2,
                 "contact/t_cover_after_mean": 0.3,
                 "calibrator/after_brier": 0.4,
@@ -131,8 +134,11 @@ class TestLogger(unittest.TestCase):
             payload = json.loads((root / "logs" / "metrics.jsonl").read_text(encoding="utf-8").strip())
             filtered = payload["stats"]
             self.assertIn("outcome/success_lift_vs_dataset", filtered)
+            self.assertIn("outcome/drop_rate_after_given_dataset_positive", filtered)
+            self.assertIn("outcome/hold_rate_after_given_dataset_negative", filtered)
             self.assertIn("reward/total_mean", filtered)
             self.assertIn("timing/validation_wall_s", filtered)
+            self.assertNotIn("outcome/dataset_positive_count", filtered)
             self.assertNotIn("system/process_rss_mb", filtered)
             self.assertNotIn("action/saturation_rate", filtered)
             self.assertNotIn("collection/worker_recycle_performed", filtered)

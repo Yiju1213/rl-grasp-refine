@@ -3,7 +3,7 @@
 # scripts/debug_single_rollout.py、scripts/debug_calibrator.py 共同读取。
 
 # 实验名。训练输出会写到 logging.log_dir/<name>/ 下。
-name: rwd-grp-a_96-epi_paper-spec_11-train-2-standby_4-val-1-standby
+name: rwd-grp-a_96-epi_paper-spec_wo-stb-rwd
 
 # 实验随机种子。train/evaluate 脚本会优先用这里的值。
 seed: 7
@@ -25,11 +25,11 @@ val_object_count: 4
 val_object_ratio:
 
 # 训练迭代数。当前 train.py -> Trainer.train() 直接读取。
-num_iterations: 300
+num_iterations: 400
 
 # 机制消融 preset。由 apply_experiment_overrides() 展开到 env/model/calibration。
 ablation:
-  id: baseline
+  id: wo-stb-rwd
 
 # 多 worker 异步训练时，每隔多少轮在 collect 前重建一次 worker scene。
 # 0 表示不重建；1 表示从 iteration 1 开始每轮都重建。
@@ -51,7 +51,7 @@ worker_recycle_prefetch_count: 2
 validation:
   enabled: true
   every_n_iterations: 3
-  num_workers: 6
+  num_workers: 8
   num_episodes: 384
   worker_recycle_every_n_iterations: 1
   worker_recycle_slots_per_event: 1

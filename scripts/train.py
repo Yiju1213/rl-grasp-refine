@@ -129,6 +129,22 @@ def main():
         env, calibrator = build_env(env_cfg, perception_cfg, calibration_cfg)
         actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
 
+    resolved_reward_cfg = dict(env_cfg.get("reward", {}))
+    resolved_reward_weights = {
+        "drop": float(resolved_reward_cfg.get("drop_weight", 1.0)),
+        "stability": float(resolved_reward_cfg.get("stability_weight", 1.0)),
+        "contact": float(resolved_reward_cfg.get("contact_weight", 1.0)),
+    }
+    resolved_policy_components = list(getattr(getattr(actor_critic, "observation_spec", None), "components", ()))
+    ablation_id = str(dict(experiment_cfg.get("ablation", {})).get("id", "baseline") or "baseline").strip()
+    logger.info(
+        "Resolved ablation config: "
+        f"id={ablation_id}, "
+        f"policy_components={resolved_policy_components}, "
+        f"reward_weights={resolved_reward_weights}, "
+        f"online_calibration_update_enabled={bool(calibration_cfg.get('online_update_enabled', True))}."
+    )
+
     if validation_enabled:
         validation_env_cfg = deepcopy(config_bundle["env"])
         validation_dataset_cfg = validation_env_cfg.setdefault("dataset", {})

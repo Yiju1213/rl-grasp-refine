@@ -160,6 +160,8 @@ class Logger:
             "outcome/success_rate_live_after",
             "outcome/success_rate_dataset_before",
             "outcome/success_lift_vs_dataset",
+            "outcome/drop_rate_after_given_dataset_positive",
+            "outcome/hold_rate_after_given_dataset_negative",
             "reward/total_mean",
             "reward/drop_mean",
             "reward/stability_mean",

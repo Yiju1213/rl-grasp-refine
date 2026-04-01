@@ -7,6 +7,9 @@ init_a: 1.0
 # b 的初始值。和 init_a 一起决定校准前的默认映射。
 init_b: 0.0
 
+# 是否允许 rollout 后在线更新 calibrator 参数。
+online_update_enabled: true
+
 # logistic calibration 的 ridge / damping 系数。
 # 论文 appendix 对应：L(theta) + lambda / 2 * ||theta||^2，
 # posterior_cov = (H + lambda I)^(-1)。

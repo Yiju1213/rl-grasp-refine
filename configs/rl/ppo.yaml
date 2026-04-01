@@ -51,4 +51,4 @@ normalize_advantages: true
 max_collect_attempt_factor: 10
 
 # worker 数量。>1 时会启用 spawn 型异步 rollout collector。
-num_envs: 11
+num_envs: 12

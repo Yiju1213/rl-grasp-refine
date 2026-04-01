@@ -12,6 +12,7 @@ class OnlineLogitCalibrator(BaseCalibrator):
         self.init_a = float(cfg.get("init_a", 1.0))
         self.init_b = float(cfg.get("init_b", 0.0))
         self.lambda_reg = float(cfg.get("lambda", 1.0))
+        self.online_update_enabled = bool(cfg.get("online_update_enabled", True))
         if self.lambda_reg <= 0.0:
             raise ValueError("OnlineLogitCalibrator requires a positive 'lambda' regularization term.")
         self.reset()
@@ -30,6 +31,8 @@ class OnlineLogitCalibrator(BaseCalibrator):
         return calibrated_prob.astype(np.float32)
 
     def update(self, logits, labels) -> None:
+        if not self.online_update_enabled:
+            return
         logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
         labels_array = np.asarray(labels, dtype=np.float64).reshape(-1)
         if logits_array.size == 0:

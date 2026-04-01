@@ -16,6 +16,9 @@ class RewardManager:
         self.contact_threshold_edge = float(cfg.get("contact_threshold_edge", 0.2))
         self.drop_success_reward = float(cfg.get("drop_success_reward", 1.0))
         self.drop_failure_reward = float(cfg.get("drop_failure_reward", -1.0))
+        self.drop_weight = float(cfg.get("drop_weight", 1.0))
+        self.stability_weight = float(cfg.get("stability_weight", 1.0))
+        self.contact_weight = float(cfg.get("contact_weight", 1.0))
 
     def compute(
         self,
@@ -25,13 +28,13 @@ class RewardManager:
         posterior_trace: float,
         contact_after,
     ) -> RewardBreakdown:
-        reward_drop = self.compute_drop_reward(drop_success)
-        reward_stability = self.compute_stability_reward(
+        reward_drop = self.drop_weight * self.compute_drop_reward(drop_success)
+        reward_stability = self.stability_weight * self.compute_stability_reward(
             calibrated_before=calibrated_before,
             calibrated_after=calibrated_after,
             posterior_trace=posterior_trace,
         )
-        reward_contact = self.compute_contact_reward(contact_after=contact_after)
+        reward_contact = self.contact_weight * self.compute_contact_reward(contact_after=contact_after)
         total = reward_drop + reward_stability + reward_contact
         return RewardBreakdown(
             total=float(total),

@@ -44,6 +44,11 @@ action:
   rotation_bound: [0.1, 0.1, 0.1]
 
 reward:
+  # 对三项论文 reward 的显式缩放系数。消融实验可直接把某一项设为 0。
+  drop_weight: 1.0
+  stability_weight: 1.0
+  contact_weight: 1.0
+
   # 论文形式：R_stability = Delta p / (1 + kappa * tr(P))
   stability_kappa: 1.0
 

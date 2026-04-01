@@ -3,12 +3,100 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from src.rl.observation_spec import resolve_policy_observation_components
+
+_SUPPORTED_ABLATION_IDS = frozenset(
+    {
+        "baseline",
+        "wo-tac-rwd",
+        "wo-stb-rwd",
+        "wo-onl-cal",
+        "wo-tac-sem-n-rwd",
+    }
+)
+
+
+def _ensure_bundle_defaults(bundle: dict[str, Any]) -> None:
+    env_cfg = bundle.get("env")
+    if isinstance(env_cfg, dict):
+        reward_cfg = env_cfg.setdefault("reward", {})
+        if isinstance(reward_cfg, dict):
+            reward_cfg.setdefault("drop_weight", 1.0)
+            reward_cfg.setdefault("stability_weight", 1.0)
+            reward_cfg.setdefault("contact_weight", 1.0)
+
+    calibration_cfg = bundle.get("calibration")
+    if isinstance(calibration_cfg, dict):
+        calibration_cfg.setdefault("online_update_enabled", True)
+
+
+def _apply_reward_weight(bundle: dict[str, Any], key: str, value: float) -> None:
+    env_cfg = bundle.get("env")
+    if not isinstance(env_cfg, dict):
+        raise ValueError("Ablation overrides require an env config bundle.")
+    reward_cfg = env_cfg.setdefault("reward", {})
+    if not isinstance(reward_cfg, dict):
+        raise ValueError("Ablation overrides require env.reward to be a mapping.")
+    reward_cfg[key] = float(value)
+
+
+def _set_online_calibration_enabled(bundle: dict[str, Any], enabled: bool) -> None:
+    calibration_cfg = bundle.get("calibration")
+    if not isinstance(calibration_cfg, dict):
+        raise ValueError("Ablation overrides require a calibration config bundle.")
+    calibration_cfg["online_update_enabled"] = bool(enabled)
+
+
+def _remove_policy_observation_component(bundle: dict[str, Any], component: str) -> None:
+    actor_critic_cfg = bundle.get("actor_critic")
+    if not isinstance(actor_critic_cfg, dict):
+        raise ValueError("Ablation overrides require an actor_critic config bundle.")
+    policy_obs_cfg = dict(actor_critic_cfg.get("policy_observation", {}))
+    components, _ = resolve_policy_observation_components(policy_obs_cfg)
+    filtered_components = tuple(name for name in components if name != component)
+    if not filtered_components:
+        raise ValueError(
+            f"Ablation removing '{component}' would leave policy_observation.components empty."
+        )
+    policy_obs_cfg["preset"] = "custom"
+    policy_obs_cfg["components"] = list(filtered_components)
+    actor_critic_cfg["policy_observation"] = policy_obs_cfg
+
+
+def _apply_ablation_overrides(experiment_cfg: dict[str, Any], bundle: dict[str, Any]) -> None:
+    ablation_cfg = dict(experiment_cfg.get("ablation", {}))
+    ablation_id = str(ablation_cfg.get("id", "baseline") or "baseline").strip()
+    if ablation_id not in _SUPPORTED_ABLATION_IDS:
+        raise ValueError(
+            f"Unknown ablation.id '{ablation_id}'. Expected one of {sorted(_SUPPORTED_ABLATION_IDS)}."
+        )
+    ablation_cfg["id"] = ablation_id
+    experiment_cfg["ablation"] = ablation_cfg
+
+    if ablation_id == "baseline":
+        return
+    if ablation_id == "wo-tac-rwd":
+        _apply_reward_weight(bundle, "contact_weight", 0.0)
+        return
+    if ablation_id == "wo-stb-rwd":
+        _apply_reward_weight(bundle, "stability_weight", 0.0)
+        return
+    if ablation_id == "wo-onl-cal":
+        _set_online_calibration_enabled(bundle, False)
+        return
+    if ablation_id == "wo-tac-sem-n-rwd":
+        _remove_policy_observation_component(bundle, "contact_semantic")
+        _apply_reward_weight(bundle, "contact_weight", 0.0)
+        return
+
 
 def apply_experiment_overrides(experiment_cfg: dict[str, Any], bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Promote experiment-level settings into sub-configs that should share them."""
 
     experiment_cfg_local = deepcopy(experiment_cfg)
     bundle_local = deepcopy(bundle)
+    _ensure_bundle_defaults(bundle_local)
+    _apply_ablation_overrides(experiment_cfg_local, bundle_local)
 
     seed = experiment_cfg_local.get("seed")
     if seed is not None:

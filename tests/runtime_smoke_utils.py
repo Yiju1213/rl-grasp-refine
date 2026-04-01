@@ -9,6 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 import yaml
 
@@ -245,10 +246,45 @@ def summarize_timing_records(records: dict[str, list[float]]) -> dict[str, dict[
     return summary
 
 
+def summarize_raw_observation(raw_obs) -> dict[str, Any]:
+    if raw_obs is None:
+        return {}
+
+    visual = raw_obs.visual_data if isinstance(raw_obs.visual_data, dict) else {}
+    tactile = raw_obs.tactile_data if isinstance(raw_obs.tactile_data, dict) else {}
+    metadata = raw_obs.grasp_metadata if isinstance(raw_obs.grasp_metadata, dict) else {}
+    segmentation_ids = metadata.get("segmentation_ids", {}) if isinstance(metadata.get("segmentation_ids", {}), dict) else {}
+    object_id = segmentation_ids.get("object")
+
+    seg = visual.get("seg")
+    object_pixel_count = 0
+    if seg is not None and object_id is not None:
+        object_pixel_count = int(np.count_nonzero(np.asarray(seg) == int(object_id)))
+
+    tactile_rgb = tactile.get("rgb")
+    tactile_rgb_nonzero_count = 0
+    if tactile_rgb is not None:
+        tactile_rgb_nonzero_count = int(np.count_nonzero(np.asarray(tactile_rgb)))
+
+    return {
+        "observation_stage": metadata.get("observation_stage"),
+        "observation_valid": bool(metadata.get("observation_valid", True)),
+        "visual_seg_object_id": None if object_id is None else int(object_id),
+        "visual_seg_object_pixel_count": int(object_pixel_count),
+        "visual_seg_has_object_pixels": bool(object_pixel_count > 0),
+        "visual_rgb_shape": None if visual.get("rgb") is None else list(np.asarray(visual["rgb"]).shape),
+        "visual_seg_shape": None if seg is None else list(np.asarray(seg).shape),
+        "tactile_rgb_shape": None if tactile_rgb is None else list(np.asarray(tactile_rgb).shape),
+        "tactile_rgb_nonzero_count": int(tactile_rgb_nonzero_count),
+        "tactile_rgb_all_zero": bool(tactile_rgb_nonzero_count == 0) if tactile_rgb is not None else None,
+    }
+
+
 class InstrumentedRealEnvProxy:
     def __init__(self, env):
         self._env = env
         self._timing_records: dict[str, list[float]] = defaultdict(list)
+        self._last_observation_summary: dict[str, dict[str, Any]] = {"before": {}, "after": {}}
         self._install_timing_wrappers()
 
     def _install_timing_wrappers(self) -> None:
@@ -321,15 +357,21 @@ class InstrumentedRealEnvProxy:
     def reset(self):
         start = _perf_counter()
         try:
-            return self._env.reset()
+            result = self._env.reset()
+            self._last_observation_summary["before"] = summarize_raw_observation(getattr(self._env, "raw_obs_before", None))
+            self._last_observation_summary["after"] = {}
+            return result
         finally:
             self.record_timing("env_reset_total_s", _perf_counter() - start)
 
     def step(self, action):
         start = _perf_counter()
+        before_summary = summarize_raw_observation(getattr(self._env, "raw_obs_before", None))
         try:
             return self._env.step(action)
         finally:
+            self._last_observation_summary["before"] = before_summary
+            self._last_observation_summary["after"] = summarize_raw_observation(getattr(self._env, "raw_obs_after", None))
             self.record_timing("env_step_total_s", _perf_counter() - start)
 
     def sync_calibrator(self, state: dict) -> None:
@@ -345,6 +387,7 @@ class InstrumentedRealEnvProxy:
             base_snapshot = get_debug_snapshot()
         return {
             "env": base_snapshot,
+            "observation_summary": deepcopy(self._last_observation_summary),
             "timings": summarize_timing_records(self._timing_records),
         }
 

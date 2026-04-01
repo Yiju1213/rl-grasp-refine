@@ -37,6 +37,9 @@ def make_env_cfg(seed: int = 7) -> dict:
             "contact_threshold_edge": 0.2,
             "drop_success_reward": 1.0,
             "drop_failure_reward": -1.0,
+            "drop_weight": 1.0,
+            "stability_weight": 1.0,
+            "contact_weight": 1.0,
         },
         "sampling": {
             "position_noise": [0.01, 0.01, 0.01],
@@ -75,6 +78,7 @@ def make_calibration_cfg() -> dict:
         "init_a": 1.0,
         "init_b": 0.0,
         "lambda": 1.0,
+        "online_update_enabled": True,
     }
 
 
@@ -182,10 +186,16 @@ class FakeScene:
         return None
 
 
-def build_test_env(seed: int = 7):
-    env_cfg = make_env_cfg(seed)
-    perception_cfg = make_perception_cfg()
-    calibration_cfg = make_calibration_cfg()
+def build_test_env(
+    seed: int = 7,
+    *,
+    env_cfg: dict | None = None,
+    perception_cfg: dict | None = None,
+    calibration_cfg: dict | None = None,
+):
+    env_cfg = deepcopy(make_env_cfg(seed) if env_cfg is None else env_cfg)
+    perception_cfg = deepcopy(make_perception_cfg() if perception_cfg is None else perception_cfg)
+    calibration_cfg = deepcopy(make_calibration_cfg() if calibration_cfg is None else calibration_cfg)
     feature_extractor, contact_semantics_extractor, stability_predictor = build_perception_stack(perception_cfg)
     calibrator = OnlineLogitCalibrator(calibration_cfg)
     scene_factory = FakeScene
