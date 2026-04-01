@@ -19,6 +19,46 @@ from tests.fakes import (
 
 
 class TestAsyncRolloutCollector(unittest.TestCase):
+    def test_collect_batch_smoke_with_late_fusion_actor_critic(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic_cfg["policy_observation"] = {"preset": "paper"}
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_test_env_for_worker,
+        )
+        calibrator = OnlineLogitCalibrator(calibration_cfg)
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            payload = collector.collect_batch(
+                target_valid_episodes=3,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=7,
+            )
+            self.assertEqual(len(payload["transitions"]), 3)
+            self.assertEqual(payload["valid_episodes"], 3)
+            self.assertEqual(payload["rollout_version"], 7)
+        finally:
+            collector.close()
+
     def test_collect_batch_smoke_with_three_workers(self):
         env_cfg = make_env_cfg()
         perception_cfg = make_perception_cfg()

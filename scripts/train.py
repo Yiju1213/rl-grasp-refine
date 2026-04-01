@@ -136,6 +136,10 @@ def main():
         "contact": float(resolved_reward_cfg.get("contact_weight", 1.0)),
     }
     resolved_policy_components = list(getattr(getattr(actor_critic, "observation_spec", None), "components", ()))
+    latent_dim = int(getattr(getattr(actor_critic, "observation_spec", None), "latent_dim", 0))
+    aux_components = [component for component in resolved_policy_components if component != "latent_feature"]
+    aux_dim = max(int(getattr(getattr(actor_critic, "observation_spec", None), "obs_dim", 0)) - latent_dim, 0)
+    architecture_type = str(getattr(actor_critic, "architecture_type", "plain"))
     ablation_id = str(dict(experiment_cfg.get("ablation", {})).get("id", "baseline") or "baseline").strip()
     logger.info(
         "Resolved ablation config: "
@@ -143,6 +147,13 @@ def main():
         f"policy_components={resolved_policy_components}, "
         f"reward_weights={resolved_reward_weights}, "
         f"online_calibration_update_enabled={bool(calibration_cfg.get('online_update_enabled', True))}."
+    )
+    logger.info(
+        "Resolved actor-critic architecture: "
+        f"type={architecture_type}, "
+        f"latent_dim={latent_dim}, "
+        f"aux_dim={aux_dim}, "
+        f"aux_components={aux_components}."
     )
 
     if validation_enabled:

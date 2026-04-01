@@ -29,6 +29,7 @@ class TestPolicyObservationSpec(unittest.TestCase):
         actor_critic_cfg = make_actor_critic_cfg()
         spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
 
+        self.assertEqual(spec.components[0], "latent_feature")
         self.assertEqual(spec.components, ("latent_feature", "contact_semantic", "grasp_position", "grasp_rotation", "raw_stability_logit"))
         self.assertEqual(infer_obs_dim_from_spec(spec), 41)
 
@@ -43,6 +44,7 @@ class TestPolicyObservationSpec(unittest.TestCase):
         actor_critic_cfg["policy_observation"] = {"preset": "paper"}
         spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
 
+        self.assertEqual(spec.components[0], "latent_feature")
         self.assertEqual(spec.components, ("latent_feature", "contact_semantic"))
         self.assertEqual(infer_obs_dim_from_spec(spec), 34)
 
@@ -58,6 +60,7 @@ class TestPolicyObservationSpec(unittest.TestCase):
         }
         spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
 
+        self.assertEqual(spec.components[0], "latent_feature")
         self.assertEqual(spec.components, ("latent_feature", "contact_semantic", "raw_stability_logit"))
         self.assertEqual(infer_obs_dim_from_spec(spec), 35)
 
@@ -67,11 +70,13 @@ class TestPolicyObservationSpec(unittest.TestCase):
         no_pose_cfg = make_actor_critic_cfg()
         no_pose_cfg["policy_observation"] = {"preset": "no_pose"}
         no_pose_spec = resolve_policy_observation_spec(perception_cfg, no_pose_cfg)
+        self.assertEqual(no_pose_spec.components[0], "latent_feature")
         self.assertEqual(infer_obs_dim_from_spec(no_pose_spec), 35)
 
         no_logit_cfg = make_actor_critic_cfg()
         no_logit_cfg["policy_observation"] = {"preset": "no_logit"}
         no_logit_spec = resolve_policy_observation_spec(perception_cfg, no_logit_cfg)
+        self.assertEqual(no_logit_spec.components[0], "latent_feature")
         self.assertEqual(infer_obs_dim_from_spec(no_logit_spec), 40)
 
 

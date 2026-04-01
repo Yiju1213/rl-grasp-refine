@@ -40,6 +40,21 @@ class TestSingleStepPipeline(unittest.TestCase):
         self.assertIn("reward_breakdown", info.extra)
         self.assertEqual(next_obs.latent_feature.shape[0], int(perception_cfg["backbone"]["latent_dim"]))
 
+    def test_late_fusion_env_to_policy_to_step_runs(self):
+        env, _, _, _, _ = build_test_env()
+        obs = env.reset()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic, _ = build_test_actor_critic(obs_dim=41, actor_critic_cfg=actor_critic_cfg, latent_dim=32)
+        obs_tensor = observation_to_tensor(obs)
+
+        action_tensor, _, _, _ = actor_critic.act(obs_tensor)
+        next_obs, reward, done, info = env.step(action_tensor.squeeze(0).detach().cpu().numpy())
+
+        self.assertTrue(done)
+        self.assertIsInstance(reward, float)
+        self.assertIn("reward_breakdown", info.extra)
+
     def test_trainer_runs_single_iteration(self):
         env, calibrator, _, _, _ = build_test_env()
         obs_dim = observation_to_tensor(env.reset()).shape[-1]
@@ -80,6 +95,29 @@ class TestSingleStepPipeline(unittest.TestCase):
             "system/process_vms_mb",
         ):
             self.assertIn(key, history[0])
+
+    def test_late_fusion_trainer_runs_single_iteration(self):
+        env, calibrator, _, _, _ = build_test_env()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic, _ = build_test_actor_critic(obs_dim=41, actor_critic_cfg=actor_critic_cfg, latent_dim=32)
+        rl_cfg = make_rl_cfg()
+        optimizer = torch.optim.Adam(actor_critic.parameters(), lr=float(rl_cfg["learning_rate"]))
+        agent = PPOAgent(actor_critic=actor_critic, optimizer=optimizer, cfg=rl_cfg)
+        trainer = Trainer(
+            env=env,
+            actor_critic=actor_critic,
+            agent=agent,
+            buffer=RolloutBuffer(),
+            calibrator=calibrator,
+            logger=DummyLogger(),
+            cfg=rl_cfg,
+        )
+
+        history = trainer.train(num_iterations=1)
+        self.assertEqual(len(history), 1)
+        self.assertIn("reward/total_mean", history[0])
+        self.assertIn("ppo/policy_loss", history[0])
 
     def test_collect_rollout_returns_collection_report(self):
         env, calibrator, _, _, _ = build_test_env()
@@ -261,6 +299,54 @@ class TestSingleStepPipeline(unittest.TestCase):
 
         self.assertEqual(actor_critic.observation_spec.components, ("latent_feature", "grasp_position", "grasp_rotation", "raw_stability_logit"))
         self.assertEqual(tuple(obs_tensor.shape), (1, 39))
+
+        rl_cfg = make_rl_cfg()
+        optimizer = torch.optim.Adam(actor_critic.parameters(), lr=float(rl_cfg["learning_rate"]))
+        agent = PPOAgent(actor_critic=actor_critic, optimizer=optimizer, cfg=rl_cfg)
+        trainer = Trainer(
+            env=env,
+            actor_critic=actor_critic,
+            agent=agent,
+            buffer=RolloutBuffer(),
+            calibrator=calibrator,
+            logger=DummyLogger(),
+            cfg=rl_cfg,
+        )
+
+        history = trainer.train(num_iterations=1)
+        self.assertEqual(env_cfg["reward"]["contact_weight"], 0.0)
+        self.assertEqual(history[0]["reward/contact_mean"], 0.0)
+        self.assertGreater(history[0]["contact/t_cover_after_mean"], 0.0)
+        self.assertGreater(history[0]["contact/t_edge_after_mean"], 0.0)
+
+    def test_late_fusion_joint_tactile_ablation_falls_back_to_latent_only_but_keeps_contact_metrics(self):
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic_cfg["policy_observation"] = {"preset": "paper"}
+        _, bundle = apply_experiment_overrides(
+            {"ablation": {"id": "wo-tac-sem-n-rwd"}},
+            {
+                "env": make_env_cfg(),
+                "perception": make_perception_cfg(),
+                "calibration": make_calibration_cfg(),
+                "actor_critic": actor_critic_cfg,
+                "rl": make_rl_cfg(),
+            },
+        )
+
+        env, calibrator, env_cfg, perception_cfg, _ = build_test_env(
+            env_cfg=bundle["env"],
+            perception_cfg=bundle["perception"],
+            calibration_cfg=bundle["calibration"],
+        )
+        actor_critic = runtime_build_actor_critic(perception_cfg, bundle["actor_critic"])
+        obs = env.reset()
+        obs_tensor = observation_to_tensor(obs, spec=actor_critic.observation_spec)
+
+        self.assertEqual(actor_critic.observation_spec.components, ("latent_feature",))
+        self.assertEqual(actor_critic.architecture_type, "latent_first_late_fusion")
+        self.assertEqual(actor_critic.policy_net.aux_dim, 0)
+        self.assertEqual(tuple(obs_tensor.shape), (1, 32))
 
         rl_cfg = make_rl_cfg()
         optimizer = torch.optim.Adam(actor_critic.parameters(), lr=float(rl_cfg["learning_rate"]))

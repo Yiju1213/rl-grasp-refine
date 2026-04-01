@@ -14,6 +14,20 @@ def _build_mlp(input_dim: int, hidden_dims: list[int], output_dim: int) -> nn.Se
     return nn.Sequential(*layers)
 
 
+def resolve_actor_critic_architecture_type(cfg: dict) -> str:
+    architecture_cfg = dict(cfg.get("architecture", {}))
+    return str(architecture_cfg.get("type", "plain") or "plain").strip().lower()
+
+
+def validate_late_fusion_hidden_dims(hidden_dims: list[int], *, network_name: str) -> tuple[int, int]:
+    if len(hidden_dims) != 2:
+        raise ValueError(
+            f"{network_name} with latent_first_late_fusion requires exactly two hidden dims, "
+            f"got {hidden_dims}."
+        )
+    return int(hidden_dims[0]), int(hidden_dims[1])
+
+
 class PolicyNetwork(nn.Module):
     """Minimal Gaussian policy network."""
 
@@ -26,5 +40,33 @@ class PolicyNetwork(nn.Module):
 
     def forward(self, obs_tensor: torch.Tensor):
         action_mean = torch.tanh(self.backbone(obs_tensor))
+        action_log_std = self.log_std.unsqueeze(0).expand_as(action_mean)
+        return action_mean, action_log_std
+
+
+class LatentFirstLateFusionPolicyNetwork(nn.Module):
+    """Policy network that consumes latent features first and injects aux features after the first layer."""
+
+    def __init__(self, latent_dim: int, aux_dim: int, action_dim: int, cfg: dict):
+        super().__init__()
+        hidden_dims = [int(dim) for dim in cfg.get("policy_hidden_dims", [128, 128])]
+        latent_hidden_dim, trunk_hidden_dim = validate_late_fusion_hidden_dims(
+            hidden_dims,
+            network_name="PolicyNetwork",
+        )
+        initial_log_std = float(cfg.get("initial_log_std", -0.5))
+        self.latent_dim = int(latent_dim)
+        self.aux_dim = int(aux_dim)
+        self.latent_layer = nn.Linear(self.latent_dim, latent_hidden_dim)
+        self.trunk_layer = nn.Linear(latent_hidden_dim + self.aux_dim, trunk_hidden_dim)
+        self.output_layer = nn.Linear(trunk_hidden_dim, action_dim)
+        self.log_std = nn.Parameter(torch.full((action_dim,), initial_log_std))
+
+    def forward(self, obs_tensor: torch.Tensor):
+        latent = obs_tensor[:, : self.latent_dim]
+        aux = obs_tensor[:, self.latent_dim :]
+        latent_hidden = torch.relu(self.latent_layer(latent))
+        fused = torch.cat([latent_hidden, aux], dim=-1) if self.aux_dim > 0 else latent_hidden
+        action_mean = torch.tanh(self.output_layer(torch.relu(self.trunk_layer(fused))))
         action_log_std = self.log_std.unsqueeze(0).expand_as(action_mean)
         return action_mean, action_log_std

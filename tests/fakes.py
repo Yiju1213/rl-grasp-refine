@@ -13,8 +13,8 @@ from src.envs.observation_builder import ObservationBuilder
 from src.envs.reward_manager import RewardManager
 from src.envs.termination import SingleStepTermination
 from src.models.rl.actor_critic import ActorCritic
-from src.models.rl.policy_network import PolicyNetwork
-from src.models.rl.value_network import ValueNetwork
+from src.models.rl.policy_network import LatentFirstLateFusionPolicyNetwork, PolicyNetwork, resolve_actor_critic_architecture_type
+from src.models.rl.value_network import LatentFirstLateFusionValueNetwork, ValueNetwork
 from src.perception.factory import build_perception_stack
 from src.structures.action import GraspPose, NormalizedAction
 from src.structures.info import StepInfo
@@ -105,6 +105,7 @@ def make_rl_cfg() -> dict:
 
 def make_actor_critic_cfg() -> dict:
     return {
+        "architecture": {"type": "plain"},
         "policy_hidden_dims": [64, 64],
         "value_hidden_dims": [64, 64],
         "initial_log_std": -0.5,
@@ -345,10 +346,27 @@ def build_async_delay_env_for_worker(
     )
 
 
-def build_test_actor_critic(obs_dim: int):
-    actor_critic_cfg = make_actor_critic_cfg()
-    policy_net = PolicyNetwork(obs_dim=obs_dim, action_dim=6, cfg=actor_critic_cfg)
-    value_net = ValueNetwork(obs_dim=obs_dim, cfg=actor_critic_cfg)
+def build_test_actor_critic(obs_dim: int, *, actor_critic_cfg: dict | None = None, latent_dim: int | None = None):
+    actor_critic_cfg = deepcopy(make_actor_critic_cfg() if actor_critic_cfg is None else actor_critic_cfg)
+    architecture_type = resolve_actor_critic_architecture_type(actor_critic_cfg)
+    if architecture_type == "latent_first_late_fusion":
+        if latent_dim is None:
+            raise ValueError("build_test_actor_critic requires latent_dim for latent_first_late_fusion.")
+        aux_dim = int(obs_dim - int(latent_dim))
+        policy_net = LatentFirstLateFusionPolicyNetwork(
+            latent_dim=int(latent_dim),
+            aux_dim=aux_dim,
+            action_dim=6,
+            cfg=actor_critic_cfg,
+        )
+        value_net = LatentFirstLateFusionValueNetwork(
+            latent_dim=int(latent_dim),
+            aux_dim=aux_dim,
+            cfg=actor_critic_cfg,
+        )
+    else:
+        policy_net = PolicyNetwork(obs_dim=obs_dim, action_dim=6, cfg=actor_critic_cfg)
+        value_net = ValueNetwork(obs_dim=obs_dim, cfg=actor_critic_cfg)
     return ActorCritic(policy_net=policy_net, value_net=value_net), actor_critic_cfg
 
 

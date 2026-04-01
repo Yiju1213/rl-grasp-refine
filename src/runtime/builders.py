@@ -11,8 +11,12 @@ from src.envs.pybullet_scene import PyBulletScene
 from src.envs.reward_manager import RewardManager
 from src.envs.termination import SingleStepTermination
 from src.models.rl.actor_critic import ActorCritic
-from src.models.rl.policy_network import PolicyNetwork
-from src.models.rl.value_network import ValueNetwork
+from src.models.rl.policy_network import (
+    LatentFirstLateFusionPolicyNetwork,
+    PolicyNetwork,
+    resolve_actor_critic_architecture_type,
+)
+from src.models.rl.value_network import LatentFirstLateFusionValueNetwork, ValueNetwork
 from src.perception.factory import build_perception_stack
 from src.rl.observation_spec import (
     PolicyObservationSpec,
@@ -86,8 +90,32 @@ def build_actor_critic(
     spec = observation_spec or resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
     obs_dim = infer_obs_dim_from_spec(spec)
     action_dim = 6
-    policy_net = PolicyNetwork(obs_dim=obs_dim, action_dim=action_dim, cfg=actor_critic_cfg)
-    value_net = ValueNetwork(obs_dim=obs_dim, cfg=actor_critic_cfg)
+    architecture_type = resolve_actor_critic_architecture_type(actor_critic_cfg)
+    if architecture_type == "plain":
+        policy_net = PolicyNetwork(obs_dim=obs_dim, action_dim=action_dim, cfg=actor_critic_cfg)
+        value_net = ValueNetwork(obs_dim=obs_dim, cfg=actor_critic_cfg)
+    elif architecture_type == "latent_first_late_fusion":
+        if "latent_feature" not in spec.components:
+            raise ValueError("latent_first_late_fusion requires policy_observation to include latent_feature.")
+        latent_dim = int(spec.latent_dim)
+        aux_dim = int(obs_dim - latent_dim)
+        policy_net = LatentFirstLateFusionPolicyNetwork(
+            latent_dim=latent_dim,
+            aux_dim=aux_dim,
+            action_dim=action_dim,
+            cfg=actor_critic_cfg,
+        )
+        value_net = LatentFirstLateFusionValueNetwork(
+            latent_dim=latent_dim,
+            aux_dim=aux_dim,
+            cfg=actor_critic_cfg,
+        )
+    else:
+        raise ValueError(
+            f"Unknown actor_critic architecture.type '{architecture_type}'. Expected 'plain' or "
+            f"'latent_first_late_fusion'."
+        )
     actor_critic = ActorCritic(policy_net=policy_net, value_net=value_net)
     actor_critic.observation_spec = spec
+    actor_critic.architecture_type = architecture_type
     return actor_critic

@@ -3,6 +3,12 @@
 # - PolicyNetwork
 # - ValueNetwork
 
+# actor-critic 架构。
+# - plain: 当前默认，直接吃完整 flat observation
+# - latent_first_late_fusion: 第一层只吃 latent_feature，第二层再拼接其他 observation 分量
+architecture:
+  type: plain
+
 # policy MLP 的隐藏层宽度列表。
 policy_hidden_dims: [128, 128]
 
