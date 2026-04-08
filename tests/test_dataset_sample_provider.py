@@ -414,6 +414,67 @@ class TestDatasetSampleProvider(unittest.TestCase):
             self.assertEqual(first_pass, second_pass)
             self.assertEqual(first_pass, generation_shifted_pass)
 
+    def test_provider_exposes_fixed_sequence_length_and_block_count(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            for object_id, global_id in {
+                (2, 30),
+                (2, 31),
+                (2, 32),
+                (2, 33),
+                (2, 34),
+            }:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            provider = DatasetSampleProvider(
+                {
+                    "dataset_root": str(dataset_root),
+                    "seed": 3,
+                    "fixed_sample_sequence": True,
+                    "fixed_sample_sequence_seed": 11,
+                    "include_object_ids": [2],
+                    "object_block_size": 2,
+                    "worker_id": 0,
+                    "num_workers": 1,
+                    "metadata_cache_size": 1,
+                }
+            )
+
+            self.assertEqual(provider.sequence_length(), 5)
+            self.assertEqual(provider.sequence_block_count(), 3)
+            self.assertEqual(provider.estimated_total_block_count_for_selected_objects(), 3)
+
+    def test_provider_sequence_length_for_sharded_fixed_sequence_matches_worker_split(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir) / "tactile-extended"
+            for object_id, global_id in {
+                (2, 30),
+                (2, 31),
+                (2, 32),
+                (2, 33),
+                (2, 34),
+            }:
+                _write_entry(dataset_root, object_id=object_id, global_id=global_id)
+
+            worker_lengths = []
+            for worker_id in (0, 1, 2):
+                provider = DatasetSampleProvider(
+                    {
+                        "dataset_root": str(dataset_root),
+                        "seed": 3,
+                        "fixed_sample_sequence": True,
+                        "fixed_sample_sequence_seed": 11,
+                        "include_object_ids": [2],
+                        "object_block_size": 2,
+                        "worker_id": worker_id,
+                        "num_workers": 3,
+                        "metadata_cache_size": 1,
+                    }
+                )
+                worker_lengths.append(provider.sequence_length())
+
+            self.assertEqual(worker_lengths, [2, 2, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

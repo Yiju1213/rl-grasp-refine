@@ -25,7 +25,7 @@ val_object_count: 4
 val_object_ratio:
 
 # 训练迭代数。当前 train.py -> Trainer.train() 直接读取。
-num_iterations: 300
+num_iterations: 400
 
 # 机制消融 preset。由 apply_experiment_overrides() 展开到 env/model/calibration。
 ablation:
@@ -51,7 +51,7 @@ worker_recycle_prefetch_count: 2
 validation:
   enabled: true
   every_n_iterations: 3
-  num_workers: 6
+  num_workers: 8
   num_episodes: 384
   worker_recycle_every_n_iterations: 1
   worker_recycle_slots_per_event: 1

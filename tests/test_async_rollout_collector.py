@@ -168,6 +168,93 @@ class TestAsyncRolloutCollector(unittest.TestCase):
         finally:
             collector.close()
 
+    def test_collect_batch_can_return_overflow_transition_field_when_requested(self):
+        env_cfg = make_env_cfg()
+        env_cfg["delay_schedules"] = {
+            0: [0.0],
+            1: [0.15],
+        }
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            payload = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=2,
+                return_overflow_transitions=True,
+            )
+
+            self.assertEqual(len(payload["transitions"]), 1)
+            self.assertIn("overflow_transitions", payload)
+            self.assertEqual(payload["overflow_transitions"], [])
+        finally:
+            collector.close()
+
+    def test_collect_batch_respects_per_worker_dispatch_limits(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 2
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=2,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+            calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+            payload = collector.collect_batch(
+                target_valid_episodes=2,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=4,
+                per_worker_dispatch_limits={0: 2, 1: 0},
+            )
+
+            self.assertEqual(len(payload["transitions"]), 2)
+            self.assertEqual(payload["attempts_total"], 2)
+            self.assertTrue(all(item["worker_id"] == 0 for item in payload["transitions"]))
+            self.assertTrue(all(item["worker_id"] == 0 for item in payload["attempt_summaries"]))
+        finally:
+            collector.close()
+
     def test_collect_batch_rebuilds_worker_scenes_from_second_batch(self):
         env_cfg = make_env_cfg()
         perception_cfg = make_perception_cfg()

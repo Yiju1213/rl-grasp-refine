@@ -49,6 +49,22 @@ class TestCalibrator(unittest.TestCase):
         self.assertEqual(float(state_before["b"]), float(state_after["b"]))
         np.testing.assert_allclose(state_before["posterior_cov"], state_after["posterior_cov"])
 
+    def test_identity_probability_mode_uses_sigmoid_without_uncertainty(self):
+        calibration_cfg = make_calibration_cfg()
+        calibration_cfg["online_update_enabled"] = False
+        calibration_cfg["signal_mode"] = "identity_probability"
+        calibration_cfg["uncertainty_discount_enabled"] = False
+        calibrator = OnlineLogitCalibrator(calibration_cfg)
+
+        self.assertAlmostEqual(calibrator.predict(0.0), 0.5)
+        np.testing.assert_allclose(
+            calibrator.predict(np.asarray([-1.0, 0.0, 1.0], dtype=np.float32)),
+            1.0 / (1.0 + np.exp(-np.asarray([-1.0, 0.0, 1.0], dtype=np.float32))),
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        self.assertAlmostEqual(calibrator.posterior_trace(), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

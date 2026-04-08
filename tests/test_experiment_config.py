@@ -75,6 +75,8 @@ class TestExperimentConfig(unittest.TestCase):
 
         _, cal_bundle = apply_experiment_overrides({"ablation": {"id": "wo-onl-cal"}}, self._make_bundle())
         self.assertFalse(cal_bundle["calibration"]["online_update_enabled"])
+        self.assertEqual(cal_bundle["calibration"]["signal_mode"], "identity_probability")
+        self.assertFalse(cal_bundle["calibration"]["uncertainty_discount_enabled"])
 
     def test_apply_experiment_overrides_removes_contact_semantic_for_joint_tactile_ablation(self):
         bundle = self._make_bundle()

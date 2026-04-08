@@ -323,6 +323,101 @@ class AsyncDelayEnv:
         return None
 
 
+class EvaluationAsyncEnv:
+    def __init__(
+        self,
+        *,
+        object_id: int,
+        test_seed: int,
+        calibration_cfg: dict,
+    ):
+        self.object_id = int(object_id)
+        self.test_seed = int(test_seed)
+        self.calibrator = OnlineLogitCalibrator(calibration_cfg)
+        self.episode_index = 0
+        self.scene_rebuild_count = 0
+        self.scene_generation = 0
+
+    def reset(self):
+        base = 0.05 * (self.object_id + 1) + 0.01 * self.episode_index + 0.001 * self.test_seed
+        position = np.asarray([base, 0.0, 0.0], dtype=np.float32)
+        return Observation(
+            latent_feature=np.full(32, fill_value=base, dtype=np.float32),
+            contact_semantic=np.asarray([base, base / 2.0], dtype=np.float32),
+            grasp_pose=GraspPose(position=position, rotation=np.zeros(3, dtype=np.float32)),
+            raw_stability_logit=float(base),
+        )
+
+    def step(self, action: NormalizedAction):
+        if not isinstance(action, NormalizedAction):
+            action = NormalizedAction(value=np.asarray(action, dtype=np.float32))
+        legacy_before = float((self.episode_index + self.object_id) % 2 == 0)
+        logit_before = 0.1 + 0.05 * self.object_id + 0.01 * self.episode_index
+        logit_after = logit_before + 0.02 + 0.005 * self.object_id
+        drop_success = int(((self.episode_index + self.object_id + self.test_seed) % 4) != 0)
+        contact_after = np.asarray(
+            [
+                0.3 + 0.01 * self.object_id + 0.005 * self.episode_index,
+                0.2 + 0.015 * self.object_id + 0.003 * self.episode_index,
+            ],
+            dtype=np.float32,
+        )
+        next_obs = Observation(
+            latent_feature=np.full(32, fill_value=logit_after, dtype=np.float32),
+            contact_semantic=contact_after,
+            grasp_pose=GraspPose(
+                position=np.asarray([logit_after, 0.0, 0.0], dtype=np.float32),
+                rotation=np.zeros(3, dtype=np.float32),
+            ),
+            raw_stability_logit=float(logit_after),
+        )
+        info = StepInfo(
+            drop_success=int(drop_success),
+            calibrated_stability_before=float(0.45 + 0.01 * self.object_id),
+            calibrated_stability_after=float(0.50 + 0.01 * self.object_id + 0.005 * self.episode_index),
+            posterior_trace=1.5,
+            reward_drop=1.0 if drop_success else -1.0,
+            reward_stability=0.1,
+            reward_contact=0.0,
+            extra={
+                "raw_logit_before": float(logit_before),
+                "raw_logit_after": float(logit_after),
+                "legacy_drop_success_before": float(legacy_before),
+                "source_object_id": int(self.object_id),
+                "source_global_id": int(self.episode_index),
+                "trial_metadata": {
+                    "valid_for_learning": True,
+                    "trial_status": "success",
+                    "failure_reason": None,
+                },
+            },
+        )
+        self.episode_index += 1
+        return next_obs, float(1.0 if drop_success else -1.0), True, info
+
+    def sync_calibrator(self, state: dict) -> None:
+        self.calibrator.load_state(state)
+
+    def rebuild_scene(self) -> None:
+        self.scene_rebuild_count += 1
+        self.scene_generation += 1
+
+    def reset_sampling_sequence(self) -> None:
+        self.episode_index = 0
+
+    def get_debug_snapshot(self) -> dict:
+        return {
+            "object_id": int(self.object_id),
+            "test_seed": int(self.test_seed),
+            "scene_rebuild_count": int(self.scene_rebuild_count),
+            "scene_generation": int(self.scene_generation),
+            "episode_index": int(self.episode_index),
+        }
+
+    def close(self) -> None:
+        return None
+
+
 def build_async_delay_env_for_worker(
     env_cfg: dict,
     perception_cfg: dict,
@@ -343,6 +438,27 @@ def build_async_delay_env_for_worker(
         calibration_cfg=calibration_cfg,
         delay_schedules=deepcopy(env_cfg.get("delay_schedules", {})),
         invalid_attempts=deepcopy(env_cfg.get("invalid_attempts", {})),
+    )
+
+
+def build_evaluation_async_env_for_worker(
+    env_cfg: dict,
+    perception_cfg: dict,
+    calibration_cfg: dict,
+    worker_id: int | None = None,
+    num_workers: int | None = None,
+    worker_seed: int | None = None,
+    worker_generation: int | None = None,
+):
+    del perception_cfg, worker_id, num_workers, worker_seed, worker_generation
+    dataset_cfg = dict(env_cfg.get("dataset", {}))
+    object_ids = list(dataset_cfg.get("include_object_ids", []))
+    if len(object_ids) != 1:
+        raise ValueError("build_evaluation_async_env_for_worker expects exactly one include_object_ids entry.")
+    return EvaluationAsyncEnv(
+        object_id=int(object_ids[0]),
+        test_seed=int(dataset_cfg.get("fixed_sample_sequence_seed", env_cfg.get("seed", 0))),
+        calibration_cfg=calibration_cfg,
     )
 
 

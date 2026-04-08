@@ -28,12 +28,19 @@ def _build_attempt_summary(info, *, policy_forward_s: float, worker_id: int) -> 
     }
 
 
-def _worker_collect_transition(env, actor_critic, device: torch.device, observation_spec: PolicyObservationSpec) -> dict:
+def _worker_collect_transition(
+    env,
+    actor_critic,
+    device: torch.device,
+    observation_spec: PolicyObservationSpec,
+    *,
+    deterministic_policy: bool,
+) -> dict:
     obs = env.reset()
     obs_tensor = observation_to_tensor(obs, spec=observation_spec).to(device)
     policy_start = mp_context_time()
     with torch.no_grad():
-        action_tensor, log_prob, value, _ = actor_critic.act(obs_tensor)
+        action_tensor, log_prob, value, _ = actor_critic.act(obs_tensor, deterministic=deterministic_policy)
     policy_forward_s = mp_context_time() - policy_start
     record_timing = getattr(env, "record_timing", None)
     if callable(record_timing):
@@ -169,6 +176,7 @@ def _async_rollout_worker(
                     actor_critic=actor_critic,
                     device=device,
                     observation_spec=observation_spec,
+                    deterministic_policy=bool(command.get("deterministic_policy", False)),
                 )
                 if not _safe_conn_send(
                     conn,
@@ -344,6 +352,9 @@ class SubprocAsyncRolloutCollector:
         obs_spec: PolicyObservationSpec | None,
         rollout_version: int,
         reset_worker_sequences: bool = False,
+        deterministic_policy: bool = False,
+        return_overflow_transitions: bool = False,
+        per_worker_dispatch_limits: dict[int, int] | None = None,
     ) -> dict:
         if self._closed:
             raise RuntimeError("Collector is already closed.")
@@ -363,6 +374,7 @@ class SubprocAsyncRolloutCollector:
                 "worker_recycle_prefetch_ready": 0,
                 "worker_recycle_wall_s": 0.0,
                 "worker_recycle_wait_ready_wall_s": 0.0,
+                "overflow_transitions": [],
             }
         if obs_spec is not None and obs_spec != self.observation_spec:
             raise ValueError("Collector observation spec differs from the worker observation spec.")
@@ -388,10 +400,17 @@ class SubprocAsyncRolloutCollector:
         self._poll_standby_ready()
 
         transitions: list[dict] = []
+        overflow_transitions: list[dict] = []
         attempt_summaries: list[dict] = []
         attempts = 0
         max_attempts = max(target_valid_episodes * self.max_collect_attempt_factor, target_valid_episodes)
         in_flight: set[int] = set()
+        dispatch_limits = (
+            {int(worker_id): max(int(limit), 0) for worker_id, limit in per_worker_dispatch_limits.items()}
+            if per_worker_dispatch_limits is not None
+            else None
+        )
+        dispatched_by_worker = {worker_id: 0 for worker_id in range(self.num_workers)}
 
         def maybe_dispatch(worker_id: int) -> bool:
             nonlocal attempts
@@ -399,9 +418,19 @@ class SubprocAsyncRolloutCollector:
                 return False
             if attempts >= max_attempts:
                 return False
-            self._connections[worker_id].send({"cmd": "collect_one"})
+            if dispatch_limits is not None:
+                worker_limit = int(dispatch_limits.get(worker_id, 0))
+                if dispatched_by_worker[worker_id] >= worker_limit:
+                    return False
+            self._connections[worker_id].send(
+                {
+                    "cmd": "collect_one",
+                    "deterministic_policy": bool(deterministic_policy),
+                }
+            )
             in_flight.add(worker_id)
             attempts += 1
+            dispatched_by_worker[worker_id] += 1
             return True
 
         for worker_id in range(self.num_workers):
@@ -445,6 +474,12 @@ class SubprocAsyncRolloutCollector:
                 attempt_summary = dict(transition.get("attempt_summary", {}))
                 attempt_summary["worker_id"] = worker_id
                 attempt_summaries.append(attempt_summary)
+                if bool(transition["valid_for_learning"]) and bool(return_overflow_transitions):
+                    overflow_transition = dict(transition)
+                    overflow_transition["worker_id"] = worker_id
+                    overflow_transition["rollout_version"] = int(message["rollout_version"])
+                    overflow_transition["worker_device"] = str(message["device"])
+                    overflow_transitions.append(overflow_transition)
             self._poll_standby_ready()
 
         return {
@@ -457,6 +492,7 @@ class SubprocAsyncRolloutCollector:
             **scene_rebuild_metrics,
             "worker_recycle_prefetched": int(worker_recycle_prefetched),
             "worker_recycle_prefetch_ready": int(self._count_ready_standbys()),
+            "overflow_transitions": overflow_transitions,
         }
 
     def get_worker_debug_states(self) -> list[dict]:

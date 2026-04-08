@@ -28,6 +28,8 @@ def _ensure_bundle_defaults(bundle: dict[str, Any]) -> None:
     calibration_cfg = bundle.get("calibration")
     if isinstance(calibration_cfg, dict):
         calibration_cfg.setdefault("online_update_enabled", True)
+        calibration_cfg.setdefault("signal_mode", "calibrated_probability")
+        calibration_cfg.setdefault("uncertainty_discount_enabled", True)
 
 
 def _apply_reward_weight(bundle: dict[str, Any], key: str, value: float) -> None:
@@ -45,6 +47,20 @@ def _set_online_calibration_enabled(bundle: dict[str, Any], enabled: bool) -> No
     if not isinstance(calibration_cfg, dict):
         raise ValueError("Ablation overrides require a calibration config bundle.")
     calibration_cfg["online_update_enabled"] = bool(enabled)
+
+
+def _set_calibration_signal_mode(bundle: dict[str, Any], mode: str) -> None:
+    calibration_cfg = bundle.get("calibration")
+    if not isinstance(calibration_cfg, dict):
+        raise ValueError("Ablation overrides require a calibration config bundle.")
+    calibration_cfg["signal_mode"] = str(mode)
+
+
+def _set_uncertainty_discount_enabled(bundle: dict[str, Any], enabled: bool) -> None:
+    calibration_cfg = bundle.get("calibration")
+    if not isinstance(calibration_cfg, dict):
+        raise ValueError("Ablation overrides require a calibration config bundle.")
+    calibration_cfg["uncertainty_discount_enabled"] = bool(enabled)
 
 
 def _remove_policy_observation_component(bundle: dict[str, Any], component: str) -> None:
@@ -83,6 +99,8 @@ def _apply_ablation_overrides(experiment_cfg: dict[str, Any], bundle: dict[str, 
         return
     if ablation_id == "wo-onl-cal":
         _set_online_calibration_enabled(bundle, False)
+        _set_calibration_signal_mode(bundle, "identity_probability")
+        _set_uncertainty_discount_enabled(bundle, False)
         return
     if ablation_id == "wo-tac-sem-n-rwd":
         _remove_policy_observation_component(bundle, "contact_semantic")

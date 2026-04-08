@@ -1,0 +1,31 @@
+# actor-critic 网络配置。
+# 当前由 scripts/_common.py -> build_actor_critic() 传入：
+# - PolicyNetwork
+# - ValueNetwork
+
+# actor-critic 架构。
+# - plain: 当前默认，直接吃完整 flat observation
+# - latent_first_late_fusion: 第一层只吃 latent_feature，第二层再拼接其他 observation 分量
+architecture:
+  type: latent_first_late_fusion
+
+# policy MLP 的隐藏层宽度列表。
+policy_hidden_dims: [128, 128]
+
+# value MLP 的隐藏层宽度列表。
+value_hidden_dims: [128, 128]
+
+# policy 高斯分布的初始 log_std。
+# 值越大，初始探索越强；当前由 PolicyNetwork.log_std 初始化时读取。
+initial_log_std: -0.8
+
+# policy/value 输入 observation 选择。
+# preset:
+# - current: latent_feature + contact_semantic + grasp_position + grasp_rotation + raw_stability_logit
+# - paper: latent_feature + contact_semantic
+# - no_pose: 去掉 grasp_position + grasp_rotation
+# - no_logit: 去掉 raw_stability_logit
+# 若 components 不为 null，则会覆盖 preset，并按 observation_spec.py 里的规范顺序解析。
+policy_observation:
+  preset: paper
+  components: null

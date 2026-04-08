@@ -1,0 +1,16 @@
+# v1 在线校准器配置。
+# 当前由 src/calibration/online_logit_calibrator.py 直接读取。
+
+# a 的初始值。predict() 中会把 raw logit 做 a * logit + b 的线性变换。
+init_a: 1.0
+
+# b 的初始值。和 init_a 一起决定校准前的默认映射。
+init_b: 0.0
+
+# 是否允许 rollout 后在线更新 calibrator 参数。
+online_update_enabled: false
+
+# logistic calibration 的 ridge / damping 系数。
+# 论文 appendix 对应：L(theta) + lambda / 2 * ||theta||^2，
+# posterior_cov = (H + lambda I)^(-1)。
+lambda: 1.0

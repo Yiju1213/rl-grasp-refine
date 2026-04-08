@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from src.utils.geometry import quaternion_to_rotvec
 
@@ -45,10 +48,13 @@ class DatasetSampleProvider:
         self._object_entries = self._build_object_entries()
         self._epoch_sample_pairs: list[tuple[int, int]] = []
         self._fixed_epoch_sample_pairs: tuple[tuple[int, int], ...] = ()
+        self._fixed_worker_block_count = 0
         self._fixed_sequence_index = 0
         if self.fixed_sample_sequence:
-            fixed_rng = __import__("numpy").random.default_rng(int(self.fixed_sample_sequence_seed))
-            self._fixed_epoch_sample_pairs = tuple(self._build_epoch_sample_pairs(rng=fixed_rng))
+            fixed_rng = np.random.default_rng(int(self.fixed_sample_sequence_seed))
+            fixed_blocks = self._build_worker_blocks(rng=fixed_rng)
+            self._fixed_worker_block_count = len(fixed_blocks)
+            self._fixed_epoch_sample_pairs = tuple(self._flatten_worker_blocks(fixed_blocks))
             if not self._fixed_epoch_sample_pairs:
                 raise RuntimeError(
                     f"No dataset samples assigned to worker {self.worker_id} out of {self.num_workers} workers."
@@ -96,7 +102,7 @@ class DatasetSampleProvider:
             self._metadata_cache.popitem(last=False)
         return metadata
 
-    def _build_epoch_sample_pairs(self, *, rng=None) -> list[tuple[int, int]]:
+    def _build_worker_blocks(self, *, rng=None) -> list[list[tuple[int, int]]]:
         rng = rng if rng is not None else self.rng
         object_ids = list(self._object_entries.keys())
         rng.shuffle(object_ids)
@@ -110,10 +116,37 @@ class DatasetSampleProvider:
                 blocks.append([(int(object_id), int(global_id)) for global_id in block_global_ids])
 
         rng.shuffle(blocks)
-        worker_blocks = blocks[self.worker_id :: self.num_workers]
+        return blocks[self.worker_id :: self.num_workers]
+
+    @staticmethod
+    def _flatten_worker_blocks(worker_blocks: list[list[tuple[int, int]]]) -> list[tuple[int, int]]:
         epoch_sample_pairs = [sample_pair for block in worker_blocks for sample_pair in block]
         epoch_sample_pairs.reverse()
         return epoch_sample_pairs
+
+    def _build_epoch_sample_pairs(self, *, rng=None) -> list[tuple[int, int]]:
+        return self._flatten_worker_blocks(self._build_worker_blocks(rng=rng))
+
+    def sequence_length(self) -> int:
+        """Return the number of samples in one provider cycle for the current worker config."""
+
+        if self.fixed_sample_sequence:
+            return int(len(self._fixed_epoch_sample_pairs))
+        rng = np.random.default_rng(self._derive_shuffle_seed(self.seed, self.worker_generation))
+        return int(len(self._build_epoch_sample_pairs(rng=rng)))
+
+    def sequence_block_count(self) -> int:
+        """Return the number of shuffled object blocks assigned to this worker in one cycle."""
+
+        if self.fixed_sample_sequence:
+            return int(self._fixed_worker_block_count)
+        rng = np.random.default_rng(self._derive_shuffle_seed(self.seed, self.worker_generation))
+        return int(len(self._build_worker_blocks(rng=rng)))
+
+    def estimated_total_block_count_for_selected_objects(self) -> int:
+        """Return the total number of object blocks before worker sharding."""
+
+        return int(sum(math.ceil(len(global_ids) / self.object_block_size) for global_ids in self._object_entries.values()))
 
     def _prepare_next_epoch(self) -> None:
         if self.fixed_sample_sequence:

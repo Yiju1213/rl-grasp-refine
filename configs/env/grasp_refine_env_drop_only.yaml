@@ -1,0 +1,71 @@
+# v1 环境配置。
+# 当前主要由 scripts/_common.py -> build_env() 构造后，分别传给：
+# - GraspRefineEnv
+# - PyBulletScene
+# - ActionExecutor
+# - RewardManager
+
+# 随机种子统一由 experiment.seed 注入。
+max_reset_attempts: 32
+
+dataset:
+  enabled: true
+  dataset_root: /Datasets/GraspNet-1billion/tactile-extended
+  # 抽样 seed 由 experiment.seed 统一注入。
+  metadata_cache_size: 4
+  # 单 worker 内连续从同一 object 采样的 grasp block 大小。
+  object_block_size: 4
+  runtime_defaults:
+    time_step: 0.005
+    close_timeout_s: 1.0
+    effort_timeout_s: 1.0
+    grip_force: 30.0
+    release_duration_s: 1.5
+    release_check_interval_steps: 10
+    post_refine_settle_steps: 8
+
+scene:
+  use_gui: false
+  tacto_width: 240
+  tacto_height: 320
+  visual_width: 448
+  visual_height: 448
+  visual_near: 0.01
+  visual_far: 2.0
+  visualize_tacto_gui: false
+
+action:
+  # policy 输出前 3 维的物理平移上限（米）。
+  # ActionExecutor.decode() 会把 [-1, 1] 映射到这个范围。
+  translation_bound: [0.01, 0.01, 0.01]
+
+  # policy 输出后 3 维的物理旋转上限（rotation vector / rad）。
+  # ActionExecutor.decode() 会把 [-1, 1] 映射到这个范围。
+  rotation_bound: [0.1, 0.1, 0.1]
+
+reward:
+  # drop-only baseline：只保留 drop reward，关闭 stability/contact 两个分支。
+  drop_weight: 1.0
+  stability_weight: 0.0
+  contact_weight: 0.0
+
+  # 论文形式：R_stability = Delta p / (1 + kappa * tr(P))
+  stability_kappa: 1.0
+
+  # 论文形式：-lambda_c * max(0, tau_c - t_cover)
+  contact_lambda_cover: 0.30
+
+  # 论文形式：-lambda_e * max(0, tau_e - t_edge)
+  contact_lambda_edge: 0.25
+
+  # t_cover 的 soft-hinge safety threshold。
+  contact_threshold_cover: 0.25
+
+  # t_edge 的 soft-hinge safety threshold。
+  contact_threshold_edge: 0.2
+
+  # drop_success == 1 时的基础分值。
+  drop_success_reward: 1.0
+
+  # drop_success == 0 时的基础分值。
+  drop_failure_reward: -1.0

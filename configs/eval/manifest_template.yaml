@@ -1,0 +1,137 @@
+# Unified unseen-test manifest template for scripts/evaluate_best_checkpoints.py
+#
+# Usage:
+#   python scripts/evaluate_best_checkpoints.py configs/eval/manifest_template.yaml
+#
+# The script restores each experiment from:
+#   <experiment_dir>/checkpoints/best.pt
+#   <experiment_dir>/configs/
+
+# Root output directory. Each experiment will get its own subdirectory:
+#   <output_dir>/<label>/per_object_summary.csv
+#   <output_dir>/<label>/per_run_summary.csv
+#   <output_dir>/<label>/summary.csv
+#   <output_dir>/<label>/metadata.json
+output_dir: /rl-grasp-refine/outputs/unseen_test_formal
+
+experiments:
+  # User-facing experiment label.
+  # Must be unique and also be a valid directory name because it becomes
+  # the output subdirectory under output_dir.
+  # - label: drop-only
+  #   # Training artifact directory, not the experiment yaml path.
+  #   # Required contents:
+  #   #   checkpoints/best.pt
+  #   #   configs/
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_drop-only_96-epi_paper-spec
+
+  # - label: stb-rwd-5x-full
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_96-epi_paper-spec
+
+  # - label: stb-rwd-10x-full
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-10x_96-epi_paper-spec
+
+  # - label: stb-rwd-15x-full
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-15x_96-epi_paper-spec
+
+  # - label: wo-tac-rwd
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-a_96-epi_paper-spec_wo-tac-rwd
+  
+  # - label: wo-tac-sem-n-rwd
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-a_96-epi_paper-spec_wo-tac-sem-n-rwd
+
+  # - label: stb-rwd-5x-full-latefus-128-epi
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
+
+  # - label: drop-only-latent-only-128-epi
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/drop-only_128-epi_latent-only
+
+  - label: stb_rwd-1x-full
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-a_96-epi_paper-spec_11-train-2-standby_4-val-1-standby
+
+protocol:
+  # Fixed unseen object pool shared by all experiments.
+  # Replace these placeholder ids with your formal unseen object ids.
+  test_object_ids:
+    - 75
+    - 76
+    - 77
+    - 78
+    - 79
+    - 80
+    - 81
+    - 82
+    - 83
+    - 84
+    - 85
+    - 86
+    - 87
+
+  # Exactly 3 test seeds are required by the current pipeline.
+  # They only affect test-time fixed sample ordering / rollout sampling.
+  test_seeds:
+    - 1001
+    - 1002
+    - 1003
+
+  # Per-object target episode budget.
+  # Actual episodes for one object become:
+  #   min(episodes_per_object, available_samples_for_that_object)
+  episodes_per_object: 100
+
+  # Bootstrap iterations for experiment-level CI.
+  # Increase for formal runs, decrease for quick debugging.
+  bootstrap_iterations: 10000
+
+  # Confidence level used for CI percentile bounds.
+  confidence_level: 0.95
+
+collector:
+  # Evaluation collector lifecycle note:
+  # Unlike training, this offline test pipeline does not keep one long-lived
+  # collector running across the whole rollout stream. It evaluates
+  # experiment x test_seed x object_id one object at a time:
+  #   build collector -> collect this object's episodes in chunks -> close collector
+  # then moves to the next object.
+  #
+  # As a result, recycle / standby prefetch / scene rebuild only act inside the
+  # chunk loop of one object. They do not carry over across objects the way a
+  # long-lived training collector does.
+  #
+  # Practical implication:
+  # if episodes_per_object is not large, recycle is often unnecessary because
+  # the collector lifetime per object is already short. In that case it is
+  # reasonable to set worker_recycle_every_n_iterations: 0.
+
+  # Async collector worker count.
+  # Recommended default for strongest determinism: 1
+  # Increase only if you intentionally trade a little determinism for speed.
+  num_workers: 6
+
+  # Chunk size for each collect_batch() call inside one object evaluation.
+  # Smaller values make progress more granular; larger values reduce overhead.
+  batch_episodes: 100
+
+  # Optional worker policy device override.
+  # Common values: cpu, cuda, cuda:0
+  # Omit or set to null to inherit from the experiment RL config.
+  worker_policy_device: cuda:0
+
+  # Optional scene rebuild interval during evaluation.
+  # 0 means disabled.
+  scene_rebuild_every_n_iterations: 0
+
+  # Optional worker recycle interval during evaluation.
+  # 0 means disabled.
+  # In this eval pipeline, recycle only applies within one object's chunk loop.
+  # If episodes_per_object is small, disabling recycle is usually fine.
+  worker_recycle_every_n_iterations: 0
+
+  # Number of worker slots to recycle each recycle event.
+  worker_recycle_slots_per_event: 1
+
+  # Whether to keep standby workers prefetched for recycle.
+  worker_recycle_enable_standby_prefetch: true
+
+  # Number of standby workers to prefetch.
+  worker_recycle_prefetch_count: 1

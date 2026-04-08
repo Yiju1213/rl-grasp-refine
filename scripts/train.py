@@ -261,44 +261,58 @@ def main():
         best_metric_name = str(best_cfg.get("metric", best_metric_name or default_best_metric))
         best_metric_mode = str(best_cfg.get("mode", best_metric_mode or "max")).lower()
         best_filename = str(best_cfg.get("filename", "best.pt"))
+        last_cfg = dict(experiment_cfg.get("logging", {}).get("last_checkpoint", {}))
+        last_enabled = bool(last_cfg.get("enabled", True))
+        last_filename = str(last_cfg.get("filename", "last.pt"))
 
-        def _save_best_if_needed(*, iteration: int, stats: dict[str, Any], history_snapshot: list[dict[str, Any]]) -> None:
+        def _build_training_checkpoint(history_snapshot: list[dict[str, Any]]) -> dict[str, Any]:
+            return _build_checkpoint_payload(
+                actor_critic=actor_critic,
+                optimizer=optimizer,
+                calibrator=calibrator,
+                history=history_snapshot,
+                experiment_cfg=experiment_cfg,
+                best_metric_name=best_metric_name if best_enabled else None,
+                best_metric_mode=best_metric_mode if best_enabled else None,
+                best_metric_value=best_metric_value if best_enabled else None,
+                best_iteration=best_iteration if best_enabled else None,
+                object_split=resolved_object_split,
+            )
+
+        def _save_iteration_checkpoints(
+            *,
+            iteration: int,
+            stats: dict[str, Any],
+            history_snapshot: list[dict[str, Any]],
+        ) -> None:
             nonlocal best_metric_value, best_iteration
-            if not best_enabled:
-                return
-            metric_value_raw = stats.get(best_metric_name)
-            if metric_value_raw is None:
-                return
-            metric_value = float(metric_value_raw)
-            if not _metric_is_better(metric_value, best_metric_value, best_metric_mode):
-                return
-            best_metric_value = metric_value
-            best_iteration = int(iteration)
-            save_checkpoint(
-                checkpoint_dir / best_filename,
-                _build_checkpoint_payload(
-                    actor_critic=actor_critic,
-                    optimizer=optimizer,
-                    calibrator=calibrator,
-                    history=history_snapshot,
-                    experiment_cfg=experiment_cfg,
-                    best_metric_name=best_metric_name,
-                    best_metric_mode=best_metric_mode,
-                    best_metric_value=best_metric_value,
-                    best_iteration=best_iteration,
-                    object_split=resolved_object_split,
-                ),
-            )
-            logger.info(
-                f"Saved best checkpoint to {checkpoint_dir / best_filename} "
-                f"at iteration {iteration} with {best_metric_name}={metric_value:.6f}."
-            )
+            best_improved = False
+            metric_value: float | None = None
+            if best_enabled:
+                metric_value_raw = stats.get(best_metric_name)
+                if metric_value_raw is not None:
+                    metric_value = float(metric_value_raw)
+                    if _metric_is_better(metric_value, best_metric_value, best_metric_mode):
+                        best_metric_value = metric_value
+                        best_iteration = int(iteration)
+                        best_improved = True
+
+            checkpoint_payload = _build_training_checkpoint(history_snapshot)
+            if last_enabled:
+                save_checkpoint(checkpoint_dir / last_filename, checkpoint_payload)
+
+            if best_improved:
+                save_checkpoint(checkpoint_dir / best_filename, checkpoint_payload)
+                logger.info(
+                    f"Saved best checkpoint to {checkpoint_dir / best_filename} "
+                    f"at iteration {iteration} with {best_metric_name}={metric_value:.6f}."
+                )
 
         try:
             new_history = trainer.train(
                 num_iterations=int(experiment_cfg.get("num_iterations", 1)),
                 start_iteration=start_iteration,
-                iteration_callback=lambda iteration, stats, history_snapshot: _save_best_if_needed(
+                iteration_callback=lambda iteration, stats, history_snapshot: _save_iteration_checkpoints(
                     iteration=iteration,
                     stats=stats,
                     history_snapshot=initial_history + history_snapshot,
@@ -322,18 +336,7 @@ def main():
         history = initial_history + new_history
         save_checkpoint(
             checkpoint_dir / "final.pt",
-            _build_checkpoint_payload(
-                actor_critic=actor_critic,
-                optimizer=optimizer,
-                calibrator=calibrator,
-                history=history,
-                experiment_cfg=experiment_cfg,
-                best_metric_name=best_metric_name if best_enabled else None,
-                best_metric_mode=best_metric_mode if best_enabled else None,
-                best_metric_value=best_metric_value if best_enabled else None,
-                best_iteration=best_iteration if best_enabled else None,
-                object_split=resolved_object_split,
-            ),
+            _build_training_checkpoint(history),
         )
     finally:
         if collector is not None:
