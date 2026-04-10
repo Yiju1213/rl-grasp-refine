@@ -23,8 +23,8 @@ _SUMMARY_MEAN_CI_METRICS = (
     ("macro_success_lift", "macro_success_lift", "success_lift_vs_dataset"),
     ("pos_drop", "pos_drop_rate", "positive_drop_rate"),
     ("neg_hold", "neg_hold_rate", "negative_hold_rate"),
-    ("t_cover_after", "t_cover_after_mean", "t_cover_after_mean"),
-    ("t_edge_after", "t_edge_after_mean", "t_edge_after_mean"),
+    ("t_cover_delta", "t_cover_delta_mean", "t_cover_delta_mean"),
+    ("t_edge_delta", "t_edge_delta_mean", "t_edge_delta_mean"),
     ("prob_delta_mean", "prob_delta_mean", "prob_delta_mean"),
 )
 
@@ -35,8 +35,8 @@ _PER_OBJECT_FIELDS = (
     "success_lift_vs_dataset",
     "positive_drop_rate",
     "negative_hold_rate",
-    "t_cover_after_mean",
-    "t_edge_after_mean",
+    "t_cover_delta_mean",
+    "t_edge_delta_mean",
     "prob_delta_mean",
     "num_episodes",
     "positive_count",
@@ -53,8 +53,8 @@ _PER_RUN_FIELDS = (
     "neg_hold_rate",
     "across_object_lift_std",
     "across_object_lift_iqr",
-    "t_cover_after_mean",
-    "t_edge_after_mean",
+    "t_cover_delta_mean",
+    "t_edge_delta_mean",
     "prob_delta_mean",
     "num_objects",
     "total_episodes",
@@ -79,14 +79,14 @@ _SUMMARY_FIELDS = (
     "across_object_lift_std_std",
     "across_object_lift_iqr_mean",
     "across_object_lift_iqr_std",
-    "t_cover_after_mean",
-    "t_cover_after_std",
-    "t_cover_after_ci95_low",
-    "t_cover_after_ci95_high",
-    "t_edge_after_mean",
-    "t_edge_after_std",
-    "t_edge_after_ci95_low",
-    "t_edge_after_ci95_high",
+    "t_cover_delta_mean",
+    "t_cover_delta_std",
+    "t_cover_delta_ci95_low",
+    "t_cover_delta_ci95_high",
+    "t_edge_delta_mean",
+    "t_edge_delta_std",
+    "t_edge_delta_ci95_low",
+    "t_edge_delta_ci95_high",
     "prob_delta_mean_mean",
     "prob_delta_mean_std",
     "prob_delta_mean_ci95_low",
@@ -406,9 +406,11 @@ def _object_episode_record_from_transition(
     legacy_before = info.extra.get("legacy_drop_success_before")
     if legacy_before is None or not np.isfinite(float(legacy_before)):
         raise RuntimeError(f"Missing or invalid legacy_drop_success_before for object {object_id}.")
+    obs = transition["obs"]
     next_obs = transition["next_obs"]
-    contact_semantic = np.asarray(next_obs.contact_semantic, dtype=np.float64).reshape(-1)
-    if contact_semantic.size < 2:
+    contact_before = np.asarray(obs.contact_semantic, dtype=np.float64).reshape(-1)
+    contact_after = np.asarray(next_obs.contact_semantic, dtype=np.float64).reshape(-1)
+    if contact_before.size < 2 or contact_after.size < 2:
         raise RuntimeError(f"Object {object_id} produced an invalid contact_semantic payload.")
 
     return {
@@ -417,8 +419,8 @@ def _object_episode_record_from_transition(
         "object_id": int(object_id),
         "drop_success": int(info.drop_success),
         "legacy_drop_success_before": float(legacy_before),
-        "t_cover_after": float(contact_semantic[0]),
-        "t_edge_after": float(contact_semantic[1]),
+        "t_cover_delta": float(contact_after[0] - contact_before[0]),
+        "t_edge_delta": float(contact_after[1] - contact_before[1]),
         "prob_delta": float(info.calibrated_stability_after - info.calibrated_stability_before),
     }
 
@@ -435,8 +437,8 @@ def aggregate_object_episode_records(
 
     drop_success = np.asarray([record["drop_success"] for record in episode_records], dtype=np.float64)
     legacy_before = np.asarray([record["legacy_drop_success_before"] for record in episode_records], dtype=np.float64)
-    t_cover_after = np.asarray([record["t_cover_after"] for record in episode_records], dtype=np.float64)
-    t_edge_after = np.asarray([record["t_edge_after"] for record in episode_records], dtype=np.float64)
+    t_cover_delta = np.asarray([record["t_cover_delta"] for record in episode_records], dtype=np.float64)
+    t_edge_delta = np.asarray([record["t_edge_delta"] for record in episode_records], dtype=np.float64)
     prob_delta = np.asarray([record["prob_delta"] for record in episode_records], dtype=np.float64)
 
     positive_mask = legacy_before >= 0.5
@@ -457,8 +459,8 @@ def aggregate_object_episode_records(
         "negative_hold_rate": (
             None if negative_count == 0 else float(negative_hold_count / negative_count)
         ),
-        "t_cover_after_mean": float(np.mean(t_cover_after)),
-        "t_edge_after_mean": float(np.mean(t_edge_after)),
+        "t_cover_delta_mean": float(np.mean(t_cover_delta)),
+        "t_edge_delta_mean": float(np.mean(t_edge_delta)),
         "prob_delta_mean": float(np.mean(prob_delta)),
         "num_episodes": int(len(episode_records)),
         "positive_count": int(positive_count),
@@ -497,8 +499,8 @@ def aggregate_run_object_rows(
         "neg_hold_rate": float(neg_hold_macro),
         "across_object_lift_std": _std(success_lift_values),
         "across_object_lift_iqr": _iqr(success_lift_values),
-        "t_cover_after_mean": float(np.mean([float(row["t_cover_after_mean"]) for row in object_rows])),
-        "t_edge_after_mean": float(np.mean([float(row["t_edge_after_mean"]) for row in object_rows])),
+        "t_cover_delta_mean": float(np.mean([float(row["t_cover_delta_mean"]) for row in object_rows])),
+        "t_edge_delta_mean": float(np.mean([float(row["t_edge_delta_mean"]) for row in object_rows])),
         "prob_delta_mean": float(np.mean([float(row["prob_delta_mean"]) for row in object_rows])),
         "num_objects": int(len(object_rows)),
         "total_episodes": int(sum(int(row["num_episodes"]) for row in object_rows)),

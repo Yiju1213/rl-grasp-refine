@@ -35,8 +35,8 @@ _PER_OBJECT_HEADER = [
     "success_lift_vs_dataset",
     "positive_drop_rate",
     "negative_hold_rate",
-    "t_cover_after_mean",
-    "t_edge_after_mean",
+    "t_cover_delta_mean",
+    "t_edge_delta_mean",
     "prob_delta_mean",
     "num_episodes",
     "positive_count",
@@ -53,8 +53,8 @@ _PER_RUN_HEADER = [
     "neg_hold_rate",
     "across_object_lift_std",
     "across_object_lift_iqr",
-    "t_cover_after_mean",
-    "t_edge_after_mean",
+    "t_cover_delta_mean",
+    "t_edge_delta_mean",
     "prob_delta_mean",
     "num_objects",
     "total_episodes",
@@ -79,14 +79,14 @@ _SUMMARY_HEADER = [
     "across_object_lift_std_std",
     "across_object_lift_iqr_mean",
     "across_object_lift_iqr_std",
-    "t_cover_after_mean",
-    "t_cover_after_std",
-    "t_cover_after_ci95_low",
-    "t_cover_after_ci95_high",
-    "t_edge_after_mean",
-    "t_edge_after_std",
-    "t_edge_after_ci95_low",
-    "t_edge_after_ci95_high",
+    "t_cover_delta_mean",
+    "t_cover_delta_std",
+    "t_cover_delta_ci95_low",
+    "t_cover_delta_ci95_high",
+    "t_edge_delta_mean",
+    "t_edge_delta_std",
+    "t_edge_delta_ci95_low",
+    "t_edge_delta_ci95_high",
     "prob_delta_mean_mean",
     "prob_delta_mean_std",
     "prob_delta_mean_ci95_low",
@@ -199,8 +199,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     "object_id": 3,
                     "drop_success": 1,
                     "legacy_drop_success_before": 1.0,
-                    "t_cover_after": 0.3,
-                    "t_edge_after": 0.2,
+                    "t_cover_delta": 0.3,
+                    "t_edge_delta": 0.2,
                     "prob_delta": 0.05,
                 },
                 {
@@ -209,8 +209,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     "object_id": 3,
                     "drop_success": 0,
                     "legacy_drop_success_before": 1.0,
-                    "t_cover_after": 0.5,
-                    "t_edge_after": 0.4,
+                    "t_cover_delta": 0.5,
+                    "t_edge_delta": 0.4,
                     "prob_delta": 0.15,
                 },
             ],
@@ -226,8 +226,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     "object_id": 4,
                     "drop_success": 0,
                     "legacy_drop_success_before": 0.0,
-                    "t_cover_after": 0.4,
-                    "t_edge_after": 0.3,
+                    "t_cover_delta": 0.4,
+                    "t_edge_delta": 0.3,
                     "prob_delta": 0.25,
                 },
                 {
@@ -236,8 +236,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     "object_id": 4,
                     "drop_success": 1,
                     "legacy_drop_success_before": 0.0,
-                    "t_cover_after": 0.6,
-                    "t_edge_after": 0.5,
+                    "t_cover_delta": 0.6,
+                    "t_edge_delta": 0.5,
                     "prob_delta": 0.35,
                 },
             ],
@@ -255,8 +255,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
         self.assertAlmostEqual(run_row["macro_success_lift"], 0.0, places=7)
         self.assertAlmostEqual(run_row["pos_drop_rate"], 0.5, places=7)
         self.assertAlmostEqual(run_row["neg_hold_rate"], 0.5, places=7)
-        self.assertAlmostEqual(run_row["t_cover_after_mean"], 0.45, places=7)
-        self.assertAlmostEqual(run_row["t_edge_after_mean"], 0.35, places=7)
+        self.assertAlmostEqual(run_row["t_cover_delta_mean"], 0.45, places=7)
+        self.assertAlmostEqual(run_row["t_edge_delta_mean"], 0.35, places=7)
         self.assertAlmostEqual(run_row["prob_delta_mean"], 0.20, places=7)
 
     def test_load_evaluation_manifest_validates_duplicate_labels_and_seed_count(self):
@@ -456,15 +456,15 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     neg_hold_rate = float(
                         np.mean([float(item["negative_hold_rate"]) for item in object_rows if item["negative_hold_rate"] != ""])
                     )
-                    t_cover_after_mean = float(np.mean([float(item["t_cover_after_mean"]) for item in object_rows]))
-                    t_edge_after_mean = float(np.mean([float(item["t_edge_after_mean"]) for item in object_rows]))
+                    t_cover_delta_mean = float(np.mean([float(item["t_cover_delta_mean"]) for item in object_rows]))
+                    t_edge_delta_mean = float(np.mean([float(item["t_edge_delta_mean"]) for item in object_rows]))
                     prob_delta_mean = float(np.mean([float(item["prob_delta_mean"]) for item in object_rows]))
 
                     self.assertAlmostEqual(float(run_row["macro_success_lift"]), macro_success_lift, places=7)
                     self.assertAlmostEqual(float(run_row["pos_drop_rate"]), pos_drop_rate, places=7)
                     self.assertAlmostEqual(float(run_row["neg_hold_rate"]), neg_hold_rate, places=7)
-                    self.assertAlmostEqual(float(run_row["t_cover_after_mean"]), t_cover_after_mean, places=7)
-                    self.assertAlmostEqual(float(run_row["t_edge_after_mean"]), t_edge_after_mean, places=7)
+                    self.assertAlmostEqual(float(run_row["t_cover_delta_mean"]), t_cover_delta_mean, places=7)
+                    self.assertAlmostEqual(float(run_row["t_edge_delta_mean"]), t_edge_delta_mean, places=7)
                     self.assertAlmostEqual(float(run_row["prob_delta_mean"]), prob_delta_mean, places=7)
 
                 summary_row = summary_rows[0]
@@ -480,8 +480,8 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     "macro_success_lift",
                     "pos_drop",
                     "neg_hold",
-                    "t_cover_after",
-                    "t_edge_after",
+                    "t_cover_delta",
+                    "t_edge_delta",
                     "prob_delta_mean",
                 ):
                     mean = _cell_float(summary_row, f"{prefix}_mean")

@@ -52,14 +52,14 @@ def _summary_row(label: str, index: int) -> dict[str, float | str]:
         "across_object_lift_std_std": 0.01,
         "across_object_lift_iqr_mean": 0.11 + 0.01 * index,
         "across_object_lift_iqr_std": 0.01,
-        "t_cover_after_mean": t_cover,
-        "t_cover_after_std": 0.01,
-        "t_cover_after_ci95_low": t_cover - 0.01,
-        "t_cover_after_ci95_high": t_cover + 0.01,
-        "t_edge_after_mean": t_edge,
-        "t_edge_after_std": 0.01,
-        "t_edge_after_ci95_low": t_edge - 0.01,
-        "t_edge_after_ci95_high": t_edge + 0.01,
+        "t_cover_delta_mean": t_cover,
+        "t_cover_delta_std": 0.01,
+        "t_cover_delta_ci95_low": t_cover - 0.01,
+        "t_cover_delta_ci95_high": t_cover + 0.01,
+        "t_edge_delta_mean": t_edge,
+        "t_edge_delta_std": 0.01,
+        "t_edge_delta_ci95_low": t_edge - 0.01,
+        "t_edge_delta_ci95_high": t_edge + 0.01,
         "prob_delta_mean_mean": prob_delta,
         "prob_delta_mean_std": 0.005,
         "prob_delta_mean_ci95_low": prob_delta - 0.01,
@@ -80,8 +80,8 @@ def _per_run_rows(label: str, index: int) -> list[dict[str, float | int | str]]:
                 "neg_hold_rate": 0.46 + 0.02 * index + 0.01 * seed_index,
                 "across_object_lift_std": 0.08 + 0.01 * index,
                 "across_object_lift_iqr": 0.11 + 0.01 * index,
-                "t_cover_after_mean": 0.05 + 0.01 * index,
-                "t_edge_after_mean": 0.14 + 0.01 * index,
+                "t_cover_delta_mean": 0.05 + 0.01 * index,
+                "t_edge_delta_mean": 0.14 + 0.01 * index,
                 "prob_delta_mean": 0.02 + 0.005 * index + 0.002 * seed_index,
                 "num_objects": len(OBJECT_IDS),
                 "total_episodes": len(OBJECT_IDS) * 100,
@@ -105,8 +105,8 @@ def _per_object_rows(label: str, index: int) -> list[dict[str, float | int | str
                     "success_lift_vs_dataset": base + object_offsets[object_id] + seed_offset,
                     "positive_drop_rate": 0.10 + 0.01 * index + 0.01 * seed_index,
                     "negative_hold_rate": 0.45 + 0.01 * index + 0.01 * seed_index,
-                    "t_cover_after_mean": 0.05 + 0.01 * index,
-                    "t_edge_after_mean": 0.14 + 0.01 * index,
+                    "t_cover_delta_mean": 0.05 + 0.01 * index,
+                    "t_edge_delta_mean": 0.14 + 0.01 * index,
                     "prob_delta_mean": 0.02 + 0.005 * index + 0.002 * seed_index,
                     "num_episodes": 100,
                     "positive_count": 40,
@@ -190,7 +190,7 @@ class TestPlotPreparation(unittest.TestCase):
 
             fig01_data = fig01.prepare_data(summary_frame, labels)
             self.assertIn("macro_success_lift_mean", fig01_data.columns)
-            self.assertEqual(fig01_data["label"].iloc[0], "drop-only")
+            self.assertEqual(set(fig01_data["label"].tolist()), set(labels))
 
             fig04_data = fig04.prepare_data(summary_frame, labels)
             self.assertIn("prob_delta_mean_mean", fig04_data.columns)

@@ -44,17 +44,17 @@ SUMMARY_METRIC_SPECS = {
         "ci_high": "neg_hold_ci95_high",
         "ylabel": "Negative-Sample Hold Rate",
     },
-    "t_cover_after": {
-        "mean": "t_cover_after_mean",
-        "ci_low": "t_cover_after_ci95_low",
-        "ci_high": "t_cover_after_ci95_high",
-        "ylabel": "T-Cover After",
+    "t_cover_delta": {
+        "mean": "t_cover_delta_mean",
+        "ci_low": "t_cover_delta_ci95_low",
+        "ci_high": "t_cover_delta_ci95_high",
+        "ylabel": "T-Cover Delta",
     },
-    "t_edge_after": {
-        "mean": "t_edge_after_mean",
-        "ci_low": "t_edge_after_ci95_low",
-        "ci_high": "t_edge_after_ci95_high",
-        "ylabel": "T-Edge After",
+    "t_edge_delta": {
+        "mean": "t_edge_delta_mean",
+        "ci_low": "t_edge_delta_ci95_low",
+        "ci_high": "t_edge_delta_ci95_high",
+        "ylabel": "T-Edge Delta",
     },
     "prob_delta_mean": {
         "mean": "prob_delta_mean_mean",

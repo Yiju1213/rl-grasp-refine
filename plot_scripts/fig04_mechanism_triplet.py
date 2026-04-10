@@ -20,8 +20,8 @@ from plot_common import (
 
 FIGURE_STEM = "fig04_mechanism_triplet"
 PANELS = (
-    ("t_cover_after", "T-Cover After"),
-    ("t_edge_after", "T-Edge After"),
+    ("t_cover_delta", "T-Cover Delta"),
+    ("t_edge_delta", "T-Edge Delta"),
     ("prob_delta_mean", "Probability Delta Mean"),
 )
 
