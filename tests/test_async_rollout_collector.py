@@ -102,6 +102,90 @@ class TestAsyncRolloutCollector(unittest.TestCase):
         finally:
             collector.close()
 
+    def test_collect_batch_supports_zero_and_random_uniform_policy_modes(self):
+        env_cfg = make_env_cfg()
+        perception_cfg = make_perception_cfg()
+        calibration_cfg = make_calibration_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        rl_cfg = make_rl_cfg()
+        rl_cfg["num_envs"] = 1
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        collector = SubprocAsyncRolloutCollector(
+            env_cfg=env_cfg,
+            perception_cfg=perception_cfg,
+            calibration_cfg=calibration_cfg,
+            actor_critic_cfg=actor_critic_cfg,
+            rl_cfg=rl_cfg,
+            num_workers=1,
+            observation_spec=spec,
+            env_factory=build_async_delay_env_for_worker,
+        )
+        calibrator = OnlineLogitCalibrator(calibration_cfg)
+        try:
+            from src.runtime.builders import build_actor_critic
+
+            actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg, observation_spec=spec)
+            actor_state = {key: value.detach().cpu() for key, value in actor_critic.state_dict().items()}
+
+            zero_payload = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=1,
+                policy_mode="zero_action",
+            )
+            zero_action = zero_payload["transitions"][0]["action"]
+            self.assertTrue(np.allclose(zero_action, np.zeros(6, dtype=np.float32)))
+            self.assertEqual(zero_payload["transitions"][0]["policy_mode"], "zero_action")
+
+            random_payload_a = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=2,
+                reset_worker_sequences=True,
+                policy_mode="random_uniform",
+                test_seed=123,
+                action_seed=45,
+            )
+            random_payload_b = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=3,
+                reset_worker_sequences=True,
+                policy_mode="random_uniform",
+                test_seed=123,
+                action_seed=45,
+            )
+            random_payload_c = collector.collect_batch(
+                target_valid_episodes=1,
+                actor_state=actor_state,
+                calibrator_state=calibrator.get_state(),
+                obs_spec=spec,
+                rollout_version=4,
+                reset_worker_sequences=True,
+                policy_mode="random_uniform",
+                test_seed=123,
+                action_seed=46,
+            )
+            action_a = random_payload_a["transitions"][0]["action"]
+            action_b = random_payload_b["transitions"][0]["action"]
+            action_c = random_payload_c["transitions"][0]["action"]
+
+            self.assertTrue(np.all(action_a >= -1.0))
+            self.assertTrue(np.all(action_a <= 1.0))
+            self.assertTrue(np.allclose(action_a, action_b))
+            self.assertFalse(np.allclose(action_a, action_c))
+            self.assertEqual(random_payload_a["transitions"][0]["policy_mode"], "random_uniform")
+            self.assertEqual(random_payload_a["transitions"][0]["action_seed"], 45)
+        finally:
+            collector.close()
+
     def test_collect_batch_is_async_and_syncs_versions_for_three_workers(self):
         env_cfg = make_env_cfg()
         env_cfg["delay_schedules"] = {

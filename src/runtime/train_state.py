@@ -8,6 +8,17 @@ import torch
 from src.utils.checkpoint import load_checkpoint
 
 
+def resolve_remaining_training_iterations(*, target_iterations: int, start_iteration: int) -> int:
+    """Return how many iterations remain before reaching the configured global target."""
+    target_iterations = int(target_iterations)
+    start_iteration = int(start_iteration)
+    if target_iterations < 0:
+        raise ValueError("'num_iterations' must be non-negative.")
+    if start_iteration < 0:
+        raise ValueError("'start_iteration' must be non-negative.")
+    return max(target_iterations - start_iteration, 0)
+
+
 def move_optimizer_state_to_device(optimizer, device: torch.device) -> None:
     for state in optimizer.state.values():
         for key, value in state.items():

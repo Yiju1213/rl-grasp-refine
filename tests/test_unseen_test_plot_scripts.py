@@ -15,7 +15,6 @@ if str(PLOT_SCRIPTS_DIR) not in sys.path:
 
 import fig01_main_overall_performance as fig01
 import fig04_mechanism_triplet as fig04
-import fig05_reward_scale_response as fig05
 import fig07_object_stability_bar as fig07
 import fig09_per_run_overlay as fig09
 import plot_common
@@ -131,35 +130,64 @@ def write_plot_fixture(root: Path, labels: tuple[str, ...] | list[str] | None = 
 
 
 class TestPlotCommon(unittest.TestCase):
+    def test_normalize_cli_args_appends_group_to_output_dir(self):
+        parser = fig01.build_parser()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = plot_common.normalize_cli_args(
+                parser.parse_args(
+                    [
+                        "--root",
+                        str(Path(tmpdir) / "formal"),
+                        "--out-dir",
+                        str(Path(tmpdir) / "generated"),
+                        "--group",
+                        "ablation",
+                    ]
+                )
+            )
+            self.assertEqual(args.out_dir, (Path(tmpdir) / "generated" / "ablation").resolve())
+
     def test_discover_experiment_dirs_finds_summary_dirs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = write_plot_fixture(Path(tmpdir), labels=("drop-only", "wo-tac-rwd"))
+            root = write_plot_fixture(
+                Path(tmpdir),
+                labels=("drop-only-latent-only-128-epi", "full-latefus-128-epi"),
+            )
             discovered = plot_common.discover_experiment_dirs(root)
-            self.assertEqual(set(discovered.keys()), {"drop-only", "wo-tac-rwd"})
+            self.assertEqual(set(discovered.keys()), {"drop-only-latent-only-128-epi", "full-latefus-128-epi"})
 
     def test_resolve_selected_labels_warns_and_orders_group_entries(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = write_plot_fixture(Path(tmpdir), labels=("wo-tac-rwd", "drop-only"))
+            root = write_plot_fixture(
+                Path(tmpdir),
+                labels=("full-latefus-128-epi", "drop-only-latent-only-128-epi"),
+            )
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                selected = plot_common.resolve_selected_labels(root, group="all_formal", labels=None)
-            self.assertEqual(selected, ["drop-only", "wo-tac-rwd"])
+                selected = plot_common.resolve_selected_labels(root, group="main", labels=None)
+            self.assertEqual(selected, ["drop-only-latent-only-128-epi", "full-latefus-128-epi"])
             self.assertTrue(caught)
 
     def test_explicit_labels_override_group_and_follow_config_order(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = write_plot_fixture(Path(tmpdir), labels=("wo-tac-rwd", "drop-only"))
+            root = write_plot_fixture(
+                Path(tmpdir),
+                labels=("full-latefus-128-epi", "drop-only-latent-only-128-epi"),
+            )
             selected = plot_common.resolve_selected_labels(
                 root,
-                group="group_b",
-                labels=["wo-tac-rwd", "drop-only"],
+                group="main",
+                labels=["full-latefus-128-epi", "drop-only-latent-only-128-epi"],
             )
-            self.assertEqual(selected, ["drop-only", "wo-tac-rwd"])
+            self.assertEqual(selected, ["drop-only-latent-only-128-epi", "full-latefus-128-epi"])
 
     def test_load_table_for_labels_reads_all_supported_csvs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = write_plot_fixture(Path(tmpdir), labels=("drop-only", "stb-rwd-5x-full"))
-            labels = ["drop-only", "stb-rwd-5x-full"]
+            root = write_plot_fixture(
+                Path(tmpdir),
+                labels=("drop-only-latent-only-128-epi", "full-latefus-128-epi"),
+            )
+            labels = ["drop-only-latent-only-128-epi", "full-latefus-128-epi"]
             summary_frame = plot_common.load_table_for_labels(root, "summary.csv", labels)
             per_run_frame = plot_common.load_table_for_labels(root, "per_run_summary.csv", labels)
             per_object_frame = plot_common.load_table_for_labels(root, "per_object_summary.csv", labels)
@@ -169,11 +197,15 @@ class TestPlotCommon(unittest.TestCase):
 
     def test_average_object_metric_across_seeds_groups_by_label_and_object(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = write_plot_fixture(Path(tmpdir), labels=("drop-only",))
-            per_object_frame = plot_common.load_table_for_labels(root, "per_object_summary.csv", ["drop-only"])
+            root = write_plot_fixture(Path(tmpdir), labels=("drop-only-latent-only-128-epi",))
+            per_object_frame = plot_common.load_table_for_labels(
+                root,
+                "per_object_summary.csv",
+                ["drop-only-latent-only-128-epi"],
+            )
             averaged = plot_common.average_object_metric_across_seeds(
                 per_object_frame,
-                labels=["drop-only"],
+                labels=["drop-only-latent-only-128-epi"],
                 value_column="success_lift_vs_dataset",
             )
             self.assertEqual(len(averaged), len(OBJECT_IDS))
@@ -194,10 +226,6 @@ class TestPlotPreparation(unittest.TestCase):
 
             fig04_data = fig04.prepare_data(summary_frame, labels)
             self.assertIn("prob_delta_mean_mean", fig04_data.columns)
-
-            fig05_data = fig05.prepare_data(summary_frame, list(plot_config.GROUPS["group_b"]), "prob_delta_mean")
-            self.assertEqual(len(fig05_data), 4)
-            self.assertIn("prob_delta_mean_mean", fig05_data.columns)
 
             fig07_data = fig07.prepare_data(summary_frame, labels, "iqr")
             self.assertIn("across_object_lift_iqr_mean", fig07_data.columns)
@@ -221,7 +249,6 @@ class TestPlotScriptSmoke(unittest.TestCase):
             "fig02_main_risk_return.py",
             "fig03_risk_return_scatter.py",
             "fig04_mechanism_triplet.py",
-            "fig05_reward_scale_response.py",
             "fig06_object_stability_boxplot.py",
             "fig07_object_stability_bar.py",
             "fig08_per_object_rank_curve.py",
@@ -239,8 +266,6 @@ class TestPlotScriptSmoke(unittest.TestCase):
                         str(root),
                         "--out-dir",
                         str(output_dir),
-                        "--formats",
-                        "png",
                     ],
                     cwd=str(REPO_ROOT),
                     capture_output=True,
@@ -251,8 +276,15 @@ class TestPlotScriptSmoke(unittest.TestCase):
                     raise AssertionError(
                         f"{script_name} failed.\nstdout:\n{completed.stdout}\n\nstderr:\n{completed.stderr}"
                     )
-                expected_path = output_dir / f"{Path(script_name).stem}.png"
+                expected_group = "main" if script_name in {
+                    "fig01_main_overall_performance.py",
+                    "fig02_main_risk_return.py",
+                    "fig03_risk_return_scatter.py",
+                    "fig09_per_run_overlay.py",
+                } else "ablation"
+                expected_path = output_dir / expected_group / f"{Path(script_name).stem}.png"
                 self.assertTrue(expected_path.exists(), msg=f"Missing plot output: {expected_path}")
+                self.assertFalse((output_dir / expected_group / f"{Path(script_name).stem}.pdf").exists())
 
 
 if __name__ == "__main__":

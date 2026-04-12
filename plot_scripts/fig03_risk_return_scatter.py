@@ -35,7 +35,7 @@ def prepare_data(summary_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame
 def build_parser():
     return build_base_parser(
         "Plot experiment-level positive-drop vs negative-hold trade-off scatter.",
-        default_group="all_formal",
+        default_group="main",
     )
 
 

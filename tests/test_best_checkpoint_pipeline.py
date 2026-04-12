@@ -300,6 +300,59 @@ class TestBestCheckpointPipeline(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exactly 3 seeds"):
                 load_evaluation_manifest(manifest_path)
 
+    def test_load_evaluation_manifest_parses_policy_modes_and_defaults(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest_path = root / "manifest.yaml"
+            _write_yaml(
+                manifest_path,
+                {
+                    "output_dir": "outputs",
+                    "experiments": [
+                        {"label": "legacy", "experiment_dir": "exp_a"},
+                        {"label": "no-action", "experiment_dir": "exp_b", "policy_mode": "zero_action"},
+                        {
+                            "label": "rand-action",
+                            "experiment_dir": "exp_c",
+                            "policy_mode": "random_uniform",
+                            "action_seed": 17,
+                        },
+                    ],
+                    "protocol": {
+                        "test_object_ids": [3, 4],
+                        "test_seeds": [1, 2, 3],
+                        "episodes_per_object": 2,
+                    },
+                },
+            )
+
+            manifest = load_evaluation_manifest(manifest_path)
+
+            self.assertEqual(manifest.experiments[0].policy_mode, "learned_best")
+            self.assertEqual(manifest.experiments[0].action_seed, 0)
+            self.assertEqual(manifest.experiments[1].policy_mode, "zero_action")
+            self.assertEqual(manifest.experiments[1].action_seed, 0)
+            self.assertEqual(manifest.experiments[2].policy_mode, "random_uniform")
+            self.assertEqual(manifest.experiments[2].action_seed, 17)
+
+            _write_yaml(
+                manifest_path,
+                {
+                    "output_dir": "outputs",
+                    "experiments": [
+                        {"label": "bad", "experiment_dir": "exp_a", "policy_mode": "not_a_policy"},
+                    ],
+                    "protocol": {
+                        "test_object_ids": [3, 4],
+                        "test_seeds": [1, 2, 3],
+                        "episodes_per_object": 2,
+                    },
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "Unsupported rollout policy_mode"):
+                load_evaluation_manifest(manifest_path)
+
     def test_run_best_checkpoint_evaluation_raises_when_all_experiments_fail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -433,6 +486,10 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                 self.assertEqual(len(per_object_rows), 6)
                 self.assertEqual(len(per_run_rows), 3)
                 self.assertEqual(len(summary_rows), 1)
+                self.assertEqual(metadata["policy_mode"], "learned_best")
+                self.assertEqual(metadata["action_mode"], "deterministic_mean")
+                self.assertEqual(metadata["action_seed"], 0)
+                self.assertEqual(metadata["protocol_notes"]["policy_mode"], "learned_best")
                 self.assertEqual(metadata["protocol_notes"]["action_mode"], "deterministic_mean")
                 self.assertFalse(metadata["protocol_notes"]["episode_records_persisted"])
                 self.assertEqual(int(metadata["collector"]["num_workers"]), 1)
@@ -492,6 +549,72 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     self.assertIsNotNone(ci_high)
                     self.assertLessEqual(float(ci_low), float(mean))
                     self.assertLessEqual(float(mean), float(ci_high))
+
+    def test_run_best_checkpoint_evaluation_writes_policy_mode_metadata_for_fixed_action_baselines(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            experiment_dir = _make_experiment_dir(root, "full")
+            manifest_path = root / "manifest.yaml"
+            _write_yaml(
+                manifest_path,
+                {
+                    "output_dir": "outputs",
+                    "experiments": [
+                        {"label": "learned", "experiment_dir": str(experiment_dir)},
+                        {"label": "no-action", "experiment_dir": str(experiment_dir), "policy_mode": "zero_action"},
+                        {
+                            "label": "rand-action",
+                            "experiment_dir": str(experiment_dir),
+                            "policy_mode": "random_uniform",
+                            "action_seed": 23,
+                        },
+                    ],
+                    "protocol": {
+                        "test_object_ids": [3],
+                        "test_seeds": [101, 102, 103],
+                        "episodes_per_object": 2,
+                        "bootstrap_iterations": 20,
+                        "confidence_level": 0.95,
+                    },
+                    "collector": {
+                        "batch_episodes": 1,
+                    },
+                },
+            )
+
+            output_paths = run_best_checkpoint_evaluation(
+                manifest_path,
+                env_factory=build_evaluation_async_env_for_worker,
+                object_budget_resolver=_stub_object_budget_resolver,
+            )
+
+            self.assertEqual(set(output_paths["experiments"].keys()), {"learned", "no-action", "rand-action"})
+            expected = {
+                "learned": ("learned_best", "deterministic_mean", 0),
+                "no-action": ("zero_action", "zero_action", 0),
+                "rand-action": ("random_uniform", "random_uniform", 23),
+            }
+            for label, (policy_mode, action_mode, action_seed) in expected.items():
+                paths = output_paths["experiments"][label]
+                metadata = json.loads(paths["metadata"].read_text(encoding="utf-8"))
+                self.assertEqual(metadata["policy_mode"], policy_mode)
+                self.assertEqual(metadata["action_mode"], action_mode)
+                self.assertEqual(metadata["action_seed"], action_seed)
+                self.assertEqual(metadata["protocol_notes"]["policy_mode"], policy_mode)
+                self.assertEqual(metadata["protocol_notes"]["action_mode"], action_mode)
+                self.assertEqual(metadata["protocol_notes"]["action_seed"], action_seed)
+                self.assertEqual(
+                    paths["summary"].read_text(encoding="utf-8").splitlines()[0].split(","),
+                    _SUMMARY_HEADER,
+                )
+                self.assertEqual(
+                    paths["per_run_summary"].read_text(encoding="utf-8").splitlines()[0].split(","),
+                    _PER_RUN_HEADER,
+                )
+                self.assertEqual(
+                    paths["per_object_summary"].read_text(encoding="utf-8").splitlines()[0].split(","),
+                    _PER_OBJECT_HEADER,
+                )
 
 
 if __name__ == "__main__":

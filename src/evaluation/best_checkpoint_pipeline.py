@@ -12,7 +12,13 @@ import numpy as np
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.envs.dataset_sample_provider import DatasetSampleProvider
-from src.rl.subproc_async_rollout_collector import SubprocAsyncRolloutCollector
+from src.rl.subproc_async_rollout_collector import (
+    POLICY_MODE_LEARNED_BEST,
+    POLICY_MODE_RANDOM_UNIFORM,
+    POLICY_MODE_ZERO_ACTION,
+    SubprocAsyncRolloutCollector,
+    validate_rollout_policy_mode,
+)
 from src.runtime.builders import build_actor_critic as runtime_build_actor_critic
 from src.runtime.builders import build_env as runtime_build_env
 from src.utils.checkpoint import load_checkpoint
@@ -98,6 +104,8 @@ _SUMMARY_FIELDS = (
 class EvaluationExperiment:
     label: str
     experiment_dir: Path
+    policy_mode: str = POLICY_MODE_LEARNED_BEST
+    action_seed: int = 0
 
 
 @dataclass(frozen=True)
@@ -208,10 +216,17 @@ def load_evaluation_manifest(path: str | Path) -> EvaluationManifest:
         experiment_dir_raw = item.get("experiment_dir")
         if experiment_dir_raw is None:
             raise ValueError(f"Manifest experiment {label!r} is missing 'experiment_dir'.")
+        raw_policy_mode = item.get("policy_mode", POLICY_MODE_LEARNED_BEST)
+        policy_mode = validate_rollout_policy_mode(
+            POLICY_MODE_LEARNED_BEST if raw_policy_mode is None else str(raw_policy_mode)
+        )
+        action_seed = int(item.get("action_seed", 0) or 0)
         experiments.append(
             EvaluationExperiment(
                 label=label,
                 experiment_dir=_resolve_path(experiment_dir_raw, base_dir=base_dir),
+                policy_mode=policy_mode,
+                action_seed=action_seed,
             )
         )
 
@@ -379,6 +394,15 @@ def _resolve_experiment_context(experiment_dir: Path) -> tuple[dict[str, Any], d
         raise FileNotFoundError(f"Missing config snapshot directory: {configs_dir}")
     experiment_cfg, bundle, _ = load_experiment_bundle_from_input(configs_dir)
     return experiment_cfg, bundle, checkpoint_path, configs_dir
+
+
+def _action_mode_for_policy(policy_mode: str) -> str:
+    policy_mode = validate_rollout_policy_mode(policy_mode)
+    if policy_mode == POLICY_MODE_LEARNED_BEST:
+        return "deterministic_mean"
+    if policy_mode in {POLICY_MODE_ZERO_ACTION, POLICY_MODE_RANDOM_UNIFORM}:
+        return policy_mode
+    raise ValueError(f"Unsupported policy_mode {policy_mode!r}.")
 
 
 def _build_actor_critic(actor_critic_factory, *, perception_cfg: dict, actor_critic_cfg: dict):
@@ -677,8 +701,11 @@ def run_best_checkpoint_evaluation(
 
             experiment_object_rows: list[dict[str, Any]] = []
             experiment_run_rows: list[dict[str, Any]] = []
+            action_mode = _action_mode_for_policy(experiment.policy_mode)
             protocol_notes = {
-                "action_mode": "deterministic_mean",
+                "policy_mode": experiment.policy_mode,
+                "action_mode": action_mode,
+                "action_seed": int(experiment.action_seed),
                 "episode_records_persisted": False,
                 "episode_records_storage": "memory_only",
                 "per_object_budget_mode": "equal_budget_with_truncation",
@@ -694,6 +721,9 @@ def run_best_checkpoint_evaluation(
                 "manifest_path": manifest.manifest_path,
                 "experiment_name": experiment.label,
                 "experiment_dir": experiment.experiment_dir,
+                "policy_mode": experiment.policy_mode,
+                "action_mode": action_mode,
+                "action_seed": int(experiment.action_seed),
                 "checkpoint_path": checkpoint_path,
                 "configs_dir": configs_dir,
                 "experiment_cfg": experiment_cfg,
@@ -776,6 +806,9 @@ def run_best_checkpoint_evaluation(
                                 obs_spec=getattr(actor_critic, "observation_spec", None),
                                 rollout_version=int(rollout_version),
                                 deterministic_policy=True,
+                                policy_mode=experiment.policy_mode,
+                                test_seed=int(test_seed),
+                                action_seed=int(experiment.action_seed),
                                 return_overflow_transitions=True,
                                 per_worker_dispatch_limits=remaining_dispatch_limits,
                             )

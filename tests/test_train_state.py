@@ -9,12 +9,36 @@ import torch
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.evaluation.best_checkpoint_pipeline import restore_evaluation_state
-from src.runtime.train_state import restore_training_state
+from src.runtime.train_state import resolve_remaining_training_iterations, restore_training_state
 from src.utils.checkpoint import save_checkpoint
 from tests.fakes import build_test_actor_critic, make_actor_critic_cfg, make_calibration_cfg
 
 
 class TestTrainState(unittest.TestCase):
+    def test_resolve_remaining_training_iterations_uses_num_iterations_as_global_target(self):
+        self.assertEqual(
+            resolve_remaining_training_iterations(target_iterations=500, start_iteration=0),
+            500,
+        )
+        self.assertEqual(
+            resolve_remaining_training_iterations(target_iterations=500, start_iteration=120),
+            380,
+        )
+        self.assertEqual(
+            resolve_remaining_training_iterations(target_iterations=500, start_iteration=500),
+            0,
+        )
+        self.assertEqual(
+            resolve_remaining_training_iterations(target_iterations=500, start_iteration=620),
+            0,
+        )
+
+    def test_resolve_remaining_training_iterations_rejects_negative_values(self):
+        with self.assertRaises(ValueError):
+            resolve_remaining_training_iterations(target_iterations=-1, start_iteration=0)
+        with self.assertRaises(ValueError):
+            resolve_remaining_training_iterations(target_iterations=1, start_iteration=-1)
+
     def test_restore_training_state_loads_actor_optimizer_calibrator_and_history(self):
         actor_critic, _ = build_test_actor_critic(obs_dim=41)
         optimizer = torch.optim.Adam(actor_critic.parameters(), lr=3e-4)

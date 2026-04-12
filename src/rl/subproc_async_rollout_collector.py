@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import multiprocessing as mp
 import traceback
 from dataclasses import dataclass
@@ -13,6 +14,123 @@ from src.rl.observation_spec import PolicyObservationSpec, resolve_policy_observ
 from src.runtime.builders import build_actor_critic, build_env
 from src.structures.action import NormalizedAction
 from src.utils.tensor_utils import observation_to_tensor
+
+POLICY_MODE_LEARNED_BEST = "learned_best"
+POLICY_MODE_ZERO_ACTION = "zero_action"
+POLICY_MODE_RANDOM_UNIFORM = "random_uniform"
+VALID_ROLLOUT_POLICY_MODES = frozenset(
+    {
+        POLICY_MODE_LEARNED_BEST,
+        POLICY_MODE_ZERO_ACTION,
+        POLICY_MODE_RANDOM_UNIFORM,
+    }
+)
+
+
+def validate_rollout_policy_mode(policy_mode: str) -> str:
+    normalized = str(policy_mode).strip()
+    if normalized not in VALID_ROLLOUT_POLICY_MODES:
+        raise ValueError(
+            f"Unsupported rollout policy_mode {policy_mode!r}; "
+            f"expected one of {sorted(VALID_ROLLOUT_POLICY_MODES)}."
+        )
+    return normalized
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _current_sample_identifiers(env, *, worker_id: int) -> tuple[int, int]:
+    sample_cfg = getattr(env, "sample_cfg", None)
+    source_cfg: dict[str, Any] = {}
+    if isinstance(sample_cfg, dict):
+        raw_source = sample_cfg.get("source", {})
+        if isinstance(raw_source, dict):
+            source_cfg = raw_source
+
+    object_id = _optional_int(source_cfg.get("object_id"))
+    if object_id is None:
+        object_id = _optional_int(getattr(env, "object_id", None))
+    if object_id is None:
+        object_id = int(worker_id)
+
+    source_global_id = _optional_int(source_cfg.get("global_id"))
+    if source_global_id is None:
+        source_global_id = _optional_int(getattr(env, "source_global_id", None))
+    if source_global_id is None:
+        source_global_id = _optional_int(getattr(env, "episode_index", None))
+    if source_global_id is None:
+        source_global_id = 0
+
+    return int(object_id), int(source_global_id)
+
+
+def _stable_random_action_seed(
+    *,
+    action_seed: int,
+    test_seed: int,
+    object_id: int,
+    source_global_id: int,
+) -> int:
+    hasher = hashlib.blake2b(digest_size=8)
+    for part in (
+        "random_uniform_action",
+        int(action_seed),
+        int(test_seed),
+        int(object_id),
+        int(source_global_id),
+    ):
+        hasher.update(str(part).encode("utf-8"))
+        hasher.update(b"\0")
+    return int.from_bytes(hasher.digest()[:4], byteorder="little", signed=False)
+
+
+def _select_action_for_policy(
+    *,
+    env,
+    actor_critic,
+    device: torch.device,
+    observation_spec: PolicyObservationSpec,
+    obs,
+    deterministic_policy: bool,
+    policy_mode: str,
+    test_seed: int,
+    action_seed: int,
+    worker_id: int,
+) -> tuple[np.ndarray, float, float, float]:
+    policy_mode = validate_rollout_policy_mode(policy_mode)
+    if policy_mode == POLICY_MODE_LEARNED_BEST:
+        obs_tensor = observation_to_tensor(obs, spec=observation_spec).to(device)
+        policy_start = mp_context_time()
+        with torch.no_grad():
+            action_tensor, log_prob, value, _ = actor_critic.act(obs_tensor, deterministic=deterministic_policy)
+        policy_forward_s = mp_context_time() - policy_start
+        action_np = action_tensor.squeeze(0).detach().cpu().numpy().astype(np.float32)
+        return (
+            action_np,
+            float(log_prob.squeeze(0).detach().cpu().item()),
+            float(value.squeeze(0).detach().cpu().item()),
+            float(policy_forward_s),
+        )
+
+    if policy_mode == POLICY_MODE_ZERO_ACTION:
+        return np.zeros(6, dtype=np.float32), 0.0, 0.0, 0.0
+
+    object_id, source_global_id = _current_sample_identifiers(env, worker_id=int(worker_id))
+    seed = _stable_random_action_seed(
+        action_seed=int(action_seed),
+        test_seed=int(test_seed),
+        object_id=int(object_id),
+        source_global_id=int(source_global_id),
+    )
+    rng = np.random.default_rng(seed)
+    return rng.uniform(-1.0, 1.0, size=6).astype(np.float32), 0.0, 0.0, 0.0
 
 
 def _build_attempt_summary(info, *, policy_forward_s: float, worker_id: int) -> dict:
@@ -35,17 +153,28 @@ def _worker_collect_transition(
     observation_spec: PolicyObservationSpec,
     *,
     deterministic_policy: bool,
+    policy_mode: str,
+    test_seed: int,
+    action_seed: int,
+    worker_id: int,
 ) -> dict:
+    policy_mode = validate_rollout_policy_mode(policy_mode)
     obs = env.reset()
-    obs_tensor = observation_to_tensor(obs, spec=observation_spec).to(device)
-    policy_start = mp_context_time()
-    with torch.no_grad():
-        action_tensor, log_prob, value, _ = actor_critic.act(obs_tensor, deterministic=deterministic_policy)
-    policy_forward_s = mp_context_time() - policy_start
+    action_np, log_prob_value, value_value, policy_forward_s = _select_action_for_policy(
+        env=env,
+        actor_critic=actor_critic,
+        device=device,
+        observation_spec=observation_spec,
+        obs=obs,
+        deterministic_policy=bool(deterministic_policy),
+        policy_mode=policy_mode,
+        test_seed=int(test_seed),
+        action_seed=int(action_seed),
+        worker_id=int(worker_id),
+    )
     record_timing = getattr(env, "record_timing", None)
     if callable(record_timing):
         record_timing("policy_forward_s", policy_forward_s)
-    action_np = action_tensor.squeeze(0).detach().cpu().numpy().astype(np.float32)
     next_obs, reward, done, info = env.step(NormalizedAction(value=action_np))
     trial_metadata = info.extra.get("trial_metadata", {})
     return {
@@ -54,13 +183,15 @@ def _worker_collect_transition(
         "reward": float(reward),
         "next_obs": next_obs,
         "done": bool(done),
-        "log_prob": float(log_prob.squeeze(0).detach().cpu().item()),
-        "value": float(value.squeeze(0).detach().cpu().item()),
+        "log_prob": float(log_prob_value),
+        "value": float(value_value),
         "info": info,
         "raw_logit_before": float(info.extra.get("raw_logit_before", obs.raw_stability_logit)),
         "raw_logit_after": float(info.extra.get("raw_logit_after", next_obs.raw_stability_logit)),
         "valid_for_learning": bool(trial_metadata.get("valid_for_learning", True)),
         "policy_forward_s": float(policy_forward_s),
+        "policy_mode": policy_mode,
+        "action_seed": int(action_seed),
         "attempt_summary": _build_attempt_summary(info, policy_forward_s=policy_forward_s, worker_id=-1),
     }
 
@@ -177,6 +308,10 @@ def _async_rollout_worker(
                     device=device,
                     observation_spec=observation_spec,
                     deterministic_policy=bool(command.get("deterministic_policy", False)),
+                    policy_mode=command.get("policy_mode", POLICY_MODE_LEARNED_BEST),
+                    test_seed=int(command.get("test_seed", 0)),
+                    action_seed=int(command.get("action_seed", 0)),
+                    worker_id=int(worker_id),
                 )
                 if not _safe_conn_send(
                     conn,
@@ -353,11 +488,15 @@ class SubprocAsyncRolloutCollector:
         rollout_version: int,
         reset_worker_sequences: bool = False,
         deterministic_policy: bool = False,
+        policy_mode: str = POLICY_MODE_LEARNED_BEST,
+        test_seed: int = 0,
+        action_seed: int = 0,
         return_overflow_transitions: bool = False,
         per_worker_dispatch_limits: dict[int, int] | None = None,
     ) -> dict:
         if self._closed:
             raise RuntimeError("Collector is already closed.")
+        policy_mode = validate_rollout_policy_mode(policy_mode)
         if target_valid_episodes <= 0:
             return {
                 "transitions": [],
@@ -426,6 +565,9 @@ class SubprocAsyncRolloutCollector:
                 {
                     "cmd": "collect_one",
                     "deterministic_policy": bool(deterministic_policy),
+                    "policy_mode": policy_mode,
+                    "test_seed": int(test_seed),
+                    "action_seed": int(action_seed),
                 }
             )
             in_flight.add(worker_id)

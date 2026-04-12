@@ -106,13 +106,7 @@ def build_base_parser(
     parser.add_argument(
         "--out-dir",
         default=str(DEFAULT_OUT_DIR),
-        help="Directory for generated figures.",
-    )
-    parser.add_argument(
-        "--formats",
-        nargs="+",
-        default=list(DEFAULT_FORMATS),
-        help="Output formats, e.g. png pdf or png,pdf.",
+        help="Base directory for generated figures. The selected --group is appended automatically.",
     )
     parser.add_argument(
         "--dpi",
@@ -139,8 +133,8 @@ def build_base_parser(
 
 def normalize_cli_args(args: argparse.Namespace) -> argparse.Namespace:
     args.root = Path(args.root).expanduser().resolve()
-    args.out_dir = Path(args.out_dir).expanduser().resolve()
-    args.formats = normalize_multi_value(args.formats)
+    args.out_dir = Path(args.out_dir).expanduser().resolve() / str(args.group)
+    args.formats = list(DEFAULT_FORMATS)
     args.labels = normalize_multi_value(args.labels)
     return args
 
@@ -196,7 +190,7 @@ def resolve_selected_labels(
     labels: Sequence[str] | None,
 ) -> list[str]:
     available = discover_experiment_dirs(root)
-    requested = order_labels(labels or GROUPS[group])
+    requested = order_labels(labels) if labels else normalize_multi_value(GROUPS[group])
     selected: list[str] = []
     for label in requested:
         if label not in available:

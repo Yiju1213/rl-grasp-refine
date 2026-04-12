@@ -39,7 +39,7 @@ def prepare_data(summary_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame
 def build_parser():
     return build_base_parser(
         "Plot the three mechanism metrics with 95% CI.",
-        default_group="group_a",
+        default_group="ablation",
         style_choices=("point", "bar"),
         default_style="point",
     )

@@ -47,7 +47,7 @@ def prepare_data(
 def build_parser():
     return build_base_parser(
         "Overlay 3 run-level repeated-test dots on experiment-level macro success lift with CI.",
-        default_group="all_formal",
+        default_group="main",
     )
 
 

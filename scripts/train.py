@@ -14,7 +14,7 @@ from src.rl.subproc_async_rollout_collector import SubprocAsyncRolloutCollector
 from src.rl.trainer import Trainer
 from src.runtime.object_splits import resolve_object_split
 from src.runtime.render_env import configure_render_environment
-from src.runtime.train_state import restore_training_state
+from src.runtime.train_state import resolve_remaining_training_iterations, restore_training_state
 from src.utils.checkpoint import save_checkpoint
 from src.utils.logger import Logger, resolve_experiment_artifact_path
 from src.utils.seed import set_seed
@@ -226,6 +226,19 @@ def main():
         if checkpoint_state.get("best_iteration") is not None:
             best_iteration = int(checkpoint_state["best_iteration"])
         logger.info(f"Resuming training from {args.resume_from} at iteration {start_iteration}.")
+    target_iterations = int(experiment_cfg.get("num_iterations", 1))
+    remaining_iterations = resolve_remaining_training_iterations(
+        target_iterations=target_iterations,
+        start_iteration=start_iteration,
+    )
+    logger.info(
+        "Resolved training iteration target: "
+        f"start_iteration={start_iteration}, "
+        f"target_iterations={target_iterations}, "
+        f"remaining_iterations={remaining_iterations}."
+    )
+    if remaining_iterations == 0 and start_iteration >= target_iterations:
+        logger.info("Configured num_iterations target is already reached; no new training iterations will run.")
     trainer = Trainer(
         env=env,
         actor_critic=actor_critic,
@@ -310,7 +323,7 @@ def main():
 
         try:
             new_history = trainer.train(
-                num_iterations=int(experiment_cfg.get("num_iterations", 1)),
+                num_iterations=remaining_iterations,
                 start_iteration=start_iteration,
                 iteration_callback=lambda iteration, stats, history_snapshot: _save_iteration_checkpoints(
                     iteration=iteration,

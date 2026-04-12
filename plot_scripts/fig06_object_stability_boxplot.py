@@ -37,7 +37,7 @@ def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFr
 def build_parser():
     return build_base_parser(
         "Plot across-object success-lift boxplots after averaging each object across seeds.",
-        default_group="group_a",
+        default_group="ablation",
     )
 
 

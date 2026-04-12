@@ -32,7 +32,7 @@ def prepare_data(summary_frame: pd.DataFrame, labels: list[str], metric: str) ->
 def build_parser():
     return build_base_parser(
         "Plot a compact across-object stability summary bar chart.",
-        default_group="all_formal",
+        default_group="ablation",
         metric_choices=("iqr", "std"),
         default_metric="iqr",
     )

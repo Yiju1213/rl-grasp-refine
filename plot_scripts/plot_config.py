@@ -5,75 +5,71 @@ from pathlib import Path
 ROOT_DIR = Path("/rl-grasp-refine/outputs/unseen_test_formal")
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUT_DIR = SCRIPT_DIR / "generated"
-DEFAULT_FORMATS = ("png", "pdf")
+DEFAULT_FORMATS = ("png",)
 DEFAULT_DPI = 330
 
-ORDERED_LABELS = (
-    "stb-rwd-5x-full-latefus-128-epi",
+MAIN_LABELS = (
+    "no-action",
+    "rand-action",
     "drop-only-latent-only-128-epi",
-    "drop-only",
-    "stb_rwd-1x-full",
-    "stb-rwd-5x-full",
-    "stb-rwd-10x-full",
-    "stb-rwd-15x-full",
-    "wo-tac-rwd",
-    "wo-tac-sem-n-rwd",
+    "full-latefus-128-epi",
+)
+
+ABLATION_LABELS = (
+    "drop-only-latent-only-128-epi",
+    "wo-onl-cal_latefus_128-epi",
+    "wo-stb-rwd_latefus_128-epi",
+    "wo-tac-rwd_latefus_128-epi",
+    "wo-tac-sem-n-rwd_latefus_128-epi",
+    "full-latefus-128-epi",
+)
+
+ORDERED_LABELS = (
+    *MAIN_LABELS,
+    "wo-onl-cal_latefus_128-epi",
+    "wo-stb-rwd_latefus_128-epi",
+    "wo-tac-rwd_latefus_128-epi",
+    "wo-tac-sem-n-rwd_latefus_128-epi",
 )
 
 GROUPS = {
-    "all_formal": ORDERED_LABELS,
-    "group_a": ORDERED_LABELS,
-    "group_b": (
-        "drop-only",
-        "stb-rwd-5x-full",
-        "stb-rwd-10x-full",
-        "stb-rwd-15x-full",
-    ),
-    "self": (
-        "drop-only",
-        "stb-rwd-5x-full-latefus-128-epi",
-        "drop-only-latent-only-128-epi",
-        "stb-rwd-5x-full",
-        "stb_rwd-1x-full",
-        
-    ),
+    "main": MAIN_LABELS,
+    "ablation": ABLATION_LABELS,
 }
 
 DISPLAY_NAMES = {
-    "drop-only": "Drop-Only",
-    "stb_rwd-1x-full": "Stb x1",
-    "stb-rwd-5x-full": "Stb x5",
-    "stb-rwd-10x-full": "Stb x10",
-    "stb-rwd-15x-full": "Stb x15",
-    "stb-rwd-5x-full-latefus-128-epi": "Stb x5 LateFus 128 Epi",
-    "drop-only-latent-only-128-epi": "Drop-Only Latent Only 128 Epi",
-    "wo-tac-rwd": "w/o Tac Reward",
-    "wo-tac-sem-n-rwd": "w/o Tac Sem+Reward",
+    "no-action": "No Action",
+    "rand-action": "Random Action",
+    "drop-only-latent-only-128-epi": "Vanilla",
+    "wo-onl-cal_latefus_128-epi": "w/o Onl. Cal.",
+    "wo-stb-rwd_latefus_128-epi": "w/o Stb. Rrd.",
+    "wo-tac-rwd_latefus_128-epi": "w/o Tac. Rrd.",
+    "wo-tac-sem-n-rwd_latefus_128-epi": "w/o Tac Sem. Rrd.",
+    "full-latefus-128-epi": "Full",
 }
 
+# Okabe-Ito color-blind-safe palette plus neutral gray for no-action.
 COLORS = {
-    "drop-only": "#4C78A8",
-    "stb-rwd-5x-full": "#F58518",
-    "stb-rwd-10x-full": "#54A24B",
-    "stb-rwd-15x-full": "#E45756",
-    "stb-rwd-5x-full-latefus-128-epi": "#72B7B2",
-    "drop-only-latent-only-128-epi": "#874ADB",
-    "wo-tac-rwd": "#B279A2",
-    "wo-tac-sem-n-rwd": "#FF9DA6",
-    "stb_rwd-1x-full": "#203A43",
+    "no-action": "#7A7A7A",
+    "rand-action": "#CC79A7",
+    "drop-only-latent-only-128-epi": "#0072B2",
+    "wo-onl-cal_latefus_128-epi": "#E69F00",
+    "wo-stb-rwd_latefus_128-epi": "#D55E00",
+    "wo-tac-rwd_latefus_128-epi": "#009E73",
+    "wo-tac-sem-n-rwd_latefus_128-epi": "#56B4E9",
+    "full-latefus-128-epi": "#310D0D",
 }
 
 MARKERS = {
-    "drop-only": "o",
-    "stb-rwd-5x-full": "s",
-    "stb-rwd-10x-full": "^",
-    "stb-rwd-15x-full": "D",
-    "stb-rwd-5x-full-latefus-128-epi": "P",
-    "drop-only-latent-only-128-epi": '<',
-    "wo-tac-rwd": "X",
-    "wo-tac-sem-n-rwd": "v",
+    "no-action": "x",
+    "rand-action": "*",
+    "drop-only-latent-only-128-epi": "o",
+    "wo-onl-cal_latefus_128-epi": "s",
+    "wo-stb-rwd_latefus_128-epi": "D",
+    "wo-tac-rwd_latefus_128-epi": "^",
+    "wo-tac-sem-n-rwd_latefus_128-epi": "v",
+    "full-latefus-128-epi": "P",
 }
 
-RISK_COLOR = "#E45756"
-BENEFIT_COLOR = "#54A24B"
-
+RISK_COLOR = "#D55E00"
+BENEFIT_COLOR = "#009E73"

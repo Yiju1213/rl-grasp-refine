@@ -44,7 +44,7 @@ def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFr
 def build_parser():
     return build_base_parser(
         "Plot per-object success-lift rank curves after averaging each object across seeds.",
-        default_group="group_a",
+        default_group="ablation",
     )
 
 

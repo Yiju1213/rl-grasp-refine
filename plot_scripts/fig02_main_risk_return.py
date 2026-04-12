@@ -45,7 +45,7 @@ def prepare_data(summary_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame
 def build_parser():
     return build_base_parser(
         "Plot positive-drop and negative-hold trade-off bars with 95% CI.",
-        default_group="all_formal",
+        default_group="main",
     )
 
 

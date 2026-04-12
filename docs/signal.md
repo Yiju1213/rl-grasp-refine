@@ -199,6 +199,21 @@
 | `calibrator/after_brier` | 用 `prob_after` 预测 `drop_success` 的 Brier score，越低越好。 | 默认 |
 | `calibrator/after_bce` | 用 `prob_after` 预测 `drop_success` 的 binary cross-entropy，越低越好。 | full |
 
+#### `wo-onl-cal` 消融下的解释差异
+
+`wo-onl-cal` 是模块级机制消融，不只是“停止更新参数”。当前代码会同时设置：
+
+- `online_update_enabled: false`
+- `signal_mode: identity_probability`
+- `uncertainty_discount_enabled: false`
+
+因此在该消融下：
+
+- `calibrator/prob_before_mean` 和 `calibrator/prob_after_mean` 表示 `sigmoid(raw_logit)`，不是 `sigmoid(a * logit + b)`。
+- `calibrator/prob_delta_mean` 表示未校准概率差值 `sigmoid(raw_logit_after) - sigmoid(raw_logit_before)`。
+- `calibrator/posterior_trace_snapshot` 和 `calibrator/posterior_trace_post_update` 会退化为 `0.0`，不应解释为“后验不确定性很低”。
+- 对应的 `reward/stability_mean` 仍来自概率差值，但不再经过 posterior trace 分母衰减。
+
 ### 3.6 `ppo/*`
 
 这些信号只出现在训练主链，不会出现在 `validation/*` 下。
@@ -424,3 +439,56 @@
 - contact semantic
 - online calibrator
 - PPO optimization
+
+---
+
+## 7. Formal eval CSV 与训练日志的口径差异
+
+`scripts/evaluate_best_checkpoints.py` 生成的 formal eval CSV 不是训练日志的逐轮展开，而是 best checkpoint 在 unseen object protocol 下的离线评估汇总。默认输出目录形如：
+
+- `<output_dir>/<label>/per_object_summary.csv`
+- `<output_dir>/<label>/per_run_summary.csv`
+- `<output_dir>/<label>/summary.csv`
+- `<output_dir>/<label>/metadata.json`
+
+三层聚合关系是：
+
+- `per_object_summary.csv`：`experiment_name + test_seed + object_id` 级别。
+- `per_run_summary.csv`：`experiment_name + test_seed` 级别，由同一 seed 下多个 object 聚合得到。
+- `summary.csv`：`experiment_name` 级别，由 3 个 test seed 的 run 结果聚合得到，并给出 seed-level CI。
+
+formal eval 中的 tactile/contact 机制信号当前使用 delta 口径，而不是 after 口径：
+
+- `t_cover_delta_mean`
+- `t_edge_delta_mean`
+
+含义分别是：
+
+- `t_cover_after - t_cover_before`
+- `t_edge_after - t_edge_before`
+
+因此 formal eval 的机制图应优先看 `t_cover_delta` / `t_edge_delta`。训练日志里仍然同时保留 before、after、delta 三类字段，便于调试单轮训练动态；formal eval 则只把 delta 作为跨 object / seed 汇总的机制信号。
+
+当前 formal eval 的稳定性信号是：
+
+- `prob_delta_mean`
+
+在 `summary.csv` 中对应列名会带二次聚合后缀：
+
+- `prob_delta_mean_mean`
+- `prob_delta_mean_std`
+- `prob_delta_mean_ci95_low`
+- `prob_delta_mean_ci95_high`
+
+同理，`t_cover_delta` / `t_edge_delta` 在 `summary.csv` 中对应：
+
+- `t_cover_delta_mean`
+- `t_cover_delta_std`
+- `t_cover_delta_ci95_low`
+- `t_cover_delta_ci95_high`
+- `t_edge_delta_mean`
+- `t_edge_delta_std`
+- `t_edge_delta_ci95_low`
+- `t_edge_delta_ci95_high`
+
+注意：formal eval 默认恢复并评估 `best.pt`，所以它回答的是“validation best checkpoint 在 unseen protocol 下的表现”，不等价于“final iteration checkpoint 的表现”。
