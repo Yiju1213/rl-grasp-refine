@@ -14,8 +14,13 @@ import numpy as np
 import pandas as pd
 
 from plot_config import (
+    ADJUSTED_METRIC_DISPLAY_NAMES,
+    BASELINE_LABEL,
     COLORS,
+    CONFIDENCE_LEVEL,
     DEFAULT_DPI,
+    DEFAULT_BOOTSTRAP_ITERATIONS,
+    DEFAULT_BOOTSTRAP_SEED,
     DEFAULT_FORMATS,
     DEFAULT_OUT_DIR,
     DISPLAY_NAMES,
@@ -66,12 +71,63 @@ SUMMARY_METRIC_SPECS = {
 
 STABILITY_METRIC_SPECS = {
     "iqr": {
-        "column": "across_object_lift_iqr_mean",
-        "ylabel": "Across-Object Lift IQR",
+        "column": "adjusted_stability",
+        "ylabel": "IQR of Success Gain over No-Action",
     },
     "std": {
-        "column": "across_object_lift_std_mean",
-        "ylabel": "Across-Object Lift Std",
+        "column": "adjusted_stability",
+        "ylabel": "Std of Success Gain over No-Action",
+    },
+}
+
+ADJUSTED_METRIC_SPECS = {
+    "success_gain": {
+        "source": "success_lift_vs_dataset",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["success_gain"],
+        "short_label": "Success Gain",
+    },
+    "excess_degradation": {
+        "source": "positive_drop_rate",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["excess_degradation"],
+        "short_label": "Excess Degradation",
+    },
+    "excess_recovery": {
+        "source": "negative_hold_rate",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["excess_recovery"],
+        "short_label": "Excess Recovery",
+    },
+    "excess_t_cover_delta": {
+        "source": "t_cover_delta_mean",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["excess_t_cover_delta"],
+        "short_label": "Excess T-Cover Delta",
+    },
+    "excess_t_edge_delta": {
+        "source": "t_edge_delta_mean",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["excess_t_edge_delta"],
+        "short_label": "Excess T-Edge Delta",
+    },
+    "excess_probability_delta": {
+        "source": "prob_delta_mean",
+        "mean": "adjusted_mean",
+        "ci_low": "adjusted_ci95_low",
+        "ci_high": "adjusted_ci95_high",
+        "ylabel": ADJUSTED_METRIC_DISPLAY_NAMES["excess_probability_delta"],
+        "short_label": "Excess Probability Delta",
     },
 }
 
@@ -227,6 +283,221 @@ def load_table_for_labels(root: Path | str, filename: str, labels: Sequence[str]
         raise ValueError(f"No rows could be loaded from {filename}.")
     combined = pd.concat(frames, ignore_index=True)
     return sort_by_labels(combined, labels)
+
+
+def labels_with_baseline(
+    labels: Sequence[str],
+    *,
+    baseline_label: str = BASELINE_LABEL,
+) -> list[str]:
+    labels_list = normalize_multi_value(labels)
+    combined = [baseline_label]
+    combined.extend(label for label in labels_list if label != baseline_label)
+    return combined
+
+
+def load_per_object_table_with_baseline(
+    root: Path | str,
+    labels: Sequence[str],
+    *,
+    baseline_label: str = BASELINE_LABEL,
+) -> pd.DataFrame:
+    root_path = Path(root).expanduser().resolve()
+    experiment_dirs = discover_experiment_dirs(root_path)
+    baseline_dir = experiment_dirs.get(baseline_label)
+    if baseline_dir is None:
+        raise ValueError(
+            f"Adjusted metrics require baseline label {baseline_label!r}, "
+            f"but it is missing under {root_path}."
+        )
+    baseline_csv = baseline_dir / "per_object_summary.csv"
+    if not baseline_csv.exists():
+        raise ValueError(f"Adjusted metrics require baseline per_object_summary.csv: {baseline_csv}")
+    return load_table_for_labels(root_path, "per_object_summary.csv", labels_with_baseline(labels, baseline_label=baseline_label))
+
+
+def adjusted_metric_source_column(metric_key: str) -> str:
+    try:
+        return str(ADJUSTED_METRIC_SPECS[metric_key]["source"])
+    except KeyError as exc:
+        raise ValueError(f"Unknown adjusted metric key: {metric_key!r}") from exc
+
+
+def compute_adjusted_per_object_values(
+    per_object_frame: pd.DataFrame,
+    labels: Sequence[str],
+    *,
+    metric_key: str | None = None,
+    value_column: str | None = None,
+    baseline_label: str = BASELINE_LABEL,
+) -> pd.DataFrame:
+    if value_column is None:
+        if metric_key is None:
+            raise ValueError("Either metric_key or value_column must be provided.")
+        value_column = adjusted_metric_source_column(metric_key)
+
+    labels_list = normalize_multi_value(labels)
+    validate_columns(
+        per_object_frame,
+        ("label", "display_name", "test_seed", "object_id", value_column),
+        context="per_object_summary.csv",
+    )
+    if not labels_list:
+        raise ValueError("No labels were provided for adjusted metric computation.")
+
+    baseline_frame = per_object_frame.loc[per_object_frame["label"] == baseline_label].copy()
+    if baseline_frame.empty:
+        raise ValueError(f"Adjusted metrics require baseline rows for label {baseline_label!r}.")
+    baseline_values = (
+        baseline_frame[["test_seed", "object_id", value_column]]
+        .assign(**{value_column: lambda frame: pd.to_numeric(frame[value_column], errors="coerce")})
+        .groupby(["test_seed", "object_id"], as_index=False)[value_column]
+        .mean()
+        .rename(columns={value_column: "baseline_value"})
+    )
+
+    selected = per_object_frame.loc[per_object_frame["label"].isin(labels_list)].copy()
+    selected[value_column] = pd.to_numeric(selected[value_column], errors="coerce")
+    selected_values = (
+        selected[["label", "display_name", "test_seed", "object_id", value_column]]
+        .groupby(["label", "display_name", "test_seed", "object_id"], as_index=False)[value_column]
+        .mean()
+        .rename(columns={value_column: "observed_value"})
+    )
+    merged = selected_values.merge(baseline_values, on=["test_seed", "object_id"], how="left", validate="many_to_one")
+    if merged["baseline_value"].isna().any():
+        missing_pairs = merged.loc[merged["baseline_value"].isna(), ["test_seed", "object_id"]].drop_duplicates()
+        examples = missing_pairs.head(5).to_dict("records")
+        raise ValueError(f"Baseline {baseline_label!r} is missing paired object rows, examples: {examples}")
+    merged["adjusted_value"] = merged["observed_value"] - merged["baseline_value"]
+    return sort_by_labels(merged, labels_list)
+
+
+def average_adjusted_object_metric_across_seeds(
+    adjusted_frame: pd.DataFrame,
+    *,
+    labels: Sequence[str],
+) -> pd.DataFrame:
+    validate_columns(
+        adjusted_frame,
+        ("label", "display_name", "object_id", "adjusted_value"),
+        context="adjusted per-object data",
+    )
+    averaged = (
+        adjusted_frame.groupby(["label", "display_name", "object_id"], as_index=False)["adjusted_value"]
+        .mean()
+        .rename(columns={"adjusted_value": "seed_avg_value"})
+    )
+    return sort_by_labels(averaged, labels)
+
+
+def bootstrap_mean_ci(
+    values: Sequence[float],
+    *,
+    iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
+    confidence_level: float = CONFIDENCE_LEVEL,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> tuple[float, float, float]:
+    array = pd.to_numeric(pd.Series(values), errors="coerce").dropna().to_numpy(dtype=float)
+    if array.size == 0:
+        raise ValueError("Cannot bootstrap CI from zero finite values.")
+    mean = float(array.mean())
+    if array.size == 1 or iterations <= 0:
+        return mean, mean, mean
+    rng = np.random.default_rng(seed)
+    indices = rng.integers(0, array.size, size=(iterations, array.size))
+    bootstrap_means = array[indices].mean(axis=1)
+    alpha = (1.0 - confidence_level) / 2.0
+    low, high = np.quantile(bootstrap_means, [alpha, 1.0 - alpha])
+    return mean, float(low), float(high)
+
+
+def summarize_adjusted_experiment(
+    adjusted_frame: pd.DataFrame,
+    labels: Sequence[str],
+    *,
+    bootstrap_iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
+    confidence_level: float = CONFIDENCE_LEVEL,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> pd.DataFrame:
+    object_frame = average_adjusted_object_metric_across_seeds(adjusted_frame, labels=labels)
+    rows: list[dict[str, float | str]] = []
+    for index, label in enumerate(normalize_multi_value(labels)):
+        label_values = object_frame.loc[object_frame["label"] == label, "seed_avg_value"].to_numpy(dtype=float)
+        if label_values.size == 0:
+            continue
+        mean, low, high = bootstrap_mean_ci(
+            label_values,
+            iterations=bootstrap_iterations,
+            confidence_level=confidence_level,
+            seed=seed + index,
+        )
+        rows.append(
+            {
+                "label": label,
+                "display_name": display_name_for(label),
+                "adjusted_mean": mean,
+                "adjusted_ci95_low": low,
+                "adjusted_ci95_high": high,
+                "num_objects": int(np.isfinite(label_values).sum()),
+            }
+        )
+    if not rows:
+        raise ValueError("No adjusted experiment summaries could be computed.")
+    return sort_by_labels(pd.DataFrame(rows), labels)
+
+
+def summarize_adjusted_runs(adjusted_frame: pd.DataFrame, labels: Sequence[str]) -> pd.DataFrame:
+    validate_columns(
+        adjusted_frame,
+        ("label", "display_name", "test_seed", "adjusted_value"),
+        context="adjusted per-object data",
+    )
+    run_frame = (
+        adjusted_frame.groupby(["label", "display_name", "test_seed"], as_index=False)["adjusted_value"]
+        .mean()
+        .rename(columns={"adjusted_value": "adjusted_run_mean"})
+    )
+    return sort_by_labels(run_frame, labels)
+
+
+def summarize_adjusted_object_stability(
+    object_frame: pd.DataFrame,
+    labels: Sequence[str],
+    *,
+    metric: str,
+) -> pd.DataFrame:
+    if metric not in STABILITY_METRIC_SPECS:
+        raise ValueError(f"Unknown stability metric: {metric!r}")
+    validate_columns(
+        object_frame,
+        ("label", "display_name", "seed_avg_value"),
+        context="adjusted object-level data",
+    )
+    rows: list[dict[str, float | str]] = []
+    for label in normalize_multi_value(labels):
+        values = (
+            pd.to_numeric(object_frame.loc[object_frame["label"] == label, "seed_avg_value"], errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
+        if values.size == 0:
+            continue
+        if metric == "iqr":
+            value = float(np.quantile(values, 0.75) - np.quantile(values, 0.25))
+        else:
+            value = float(np.std(values, ddof=0))
+        rows.append(
+            {
+                "label": label,
+                "display_name": display_name_for(label),
+                "adjusted_stability": value,
+                "num_objects": int(values.size),
+            }
+        )
+    if not rows:
+        raise ValueError("No adjusted object-stability summaries could be computed.")
+    return sort_by_labels(pd.DataFrame(rows), labels)
 
 
 def sort_by_labels(frame: pd.DataFrame, labels: Sequence[str]) -> pd.DataFrame:

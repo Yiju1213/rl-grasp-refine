@@ -4,16 +4,17 @@ import numpy as np
 import pandas as pd
 
 from plot_common import (
-    SUMMARY_METRIC_SPECS,
+    add_zero_reference,
     build_base_parser,
-    load_table_for_labels,
+    compute_adjusted_per_object_values,
+    load_per_object_table_with_baseline,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
     set_label_ticks,
-    validate_columns,
+    summarize_adjusted_experiment,
     plt,
 )
 from plot_config import BENEFIT_COLOR, RISK_COLOR
@@ -21,30 +22,31 @@ from plot_config import BENEFIT_COLOR, RISK_COLOR
 FIGURE_STEM = "fig02_main_risk_return"
 
 
-def prepare_data(summary_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-    pos_spec = SUMMARY_METRIC_SPECS["pos_drop"]
-    neg_spec = SUMMARY_METRIC_SPECS["neg_hold"]
-    validate_columns(
-        summary_frame,
-        (
-            "label",
-            "display_name",
-            pos_spec["mean"],
-            pos_spec["ci_low"],
-            pos_spec["ci_high"],
-            neg_spec["mean"],
-            neg_spec["ci_low"],
-            neg_spec["ci_high"],
-        ),
-        context="summary.csv",
+def _summarize_adjusted_metric(per_object_frame: pd.DataFrame, labels: list[str], metric_key: str, prefix: str) -> pd.DataFrame:
+    adjusted_frame = compute_adjusted_per_object_values(per_object_frame, labels, metric_key=metric_key)
+    summary = summarize_adjusted_experiment(adjusted_frame, labels)
+    return summary.rename(
+        columns={
+            "adjusted_mean": f"{prefix}_mean",
+            "adjusted_ci95_low": f"{prefix}_ci95_low",
+            "adjusted_ci95_high": f"{prefix}_ci95_high",
+        }
     )
-    filtered = summary_frame.loc[summary_frame["label"].isin(labels)].copy()
-    return filtered.reset_index(drop=True)
+
+
+def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
+    degradation = _summarize_adjusted_metric(per_object_frame, labels, "excess_degradation", "degradation")
+    recovery = _summarize_adjusted_metric(per_object_frame, labels, "excess_recovery", "recovery")
+    return degradation.merge(
+        recovery[["label", "recovery_mean", "recovery_ci95_low", "recovery_ci95_high"]],
+        on="label",
+        how="inner",
+    ).reset_index(drop=True)
 
 
 def build_parser():
     return build_base_parser(
-        "Plot positive-drop and negative-hold trade-off bars with 95% CI.",
+        "Plot no-action-adjusted degradation and recovery bars with object-bootstrap 95% CI.",
         default_group="main",
     )
 
@@ -53,23 +55,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = normalize_cli_args(parser.parse_args(argv))
     labels = resolve_selected_labels(args.root, group=args.group, labels=args.labels)
-    summary_frame = load_table_for_labels(args.root, "summary.csv", labels)
-    plot_frame = prepare_data(summary_frame, labels)
-    pos_spec = SUMMARY_METRIC_SPECS["pos_drop"]
-    neg_spec = SUMMARY_METRIC_SPECS["neg_hold"]
+    per_object_frame = load_per_object_table_with_baseline(args.root, labels)
+    plot_frame = prepare_data(per_object_frame, labels)
 
     positions = np.arange(len(plot_frame), dtype=float)
     width = 0.34
     fig, ax = plt.subplots(figsize=(10.5, 5.2))
-    ax.bar(positions - width / 2.0, plot_frame[pos_spec["mean"]], width=width, color=RISK_COLOR, label="Pos-Drop")
-    ax.bar(positions + width / 2.0, plot_frame[neg_spec["mean"]], width=width, color=BENEFIT_COLOR, label="Neg-Hold")
+    ax.bar(positions - width / 2.0, plot_frame["degradation_mean"], width=width, color=RISK_COLOR, label="Excess Degradation")
+    ax.bar(positions + width / 2.0, plot_frame["recovery_mean"], width=width, color=BENEFIT_COLOR, label="Excess Recovery")
     ax.errorbar(
         positions - width / 2.0,
-        plot_frame[pos_spec["mean"]],
+        plot_frame["degradation_mean"],
         yerr=np.vstack(
             [
-                plot_frame[pos_spec["mean"]] - plot_frame[pos_spec["ci_low"]],
-                plot_frame[pos_spec["ci_high"]] - plot_frame[pos_spec["mean"]],
+                plot_frame["degradation_mean"] - plot_frame["degradation_ci95_low"],
+                plot_frame["degradation_ci95_high"] - plot_frame["degradation_mean"],
             ]
         ),
         fmt="none",
@@ -79,11 +79,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ax.errorbar(
         positions + width / 2.0,
-        plot_frame[neg_spec["mean"]],
+        plot_frame["recovery_mean"],
         yerr=np.vstack(
             [
-                plot_frame[neg_spec["mean"]] - plot_frame[neg_spec["ci_low"]],
-                plot_frame[neg_spec["ci_high"]] - plot_frame[neg_spec["mean"]],
+                plot_frame["recovery_mean"] - plot_frame["recovery_ci95_low"],
+                plot_frame["recovery_ci95_high"] - plot_frame["recovery_mean"],
             ]
         ),
         fmt="none",
@@ -92,10 +92,11 @@ def main(argv: list[str] | None = None) -> int:
         capsize=4,
     )
     set_default_axis_style(ax)
+    add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
-    ax.set_ylabel("Rate")
+    ax.set_ylabel("Rate Difference vs No-Action")
     ax.set_xlabel("Experiment")
-    ax.set_title("Risk-Return Trade-Off")
+    ax.set_title("No-Action-Adjusted Risk-Return")
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)

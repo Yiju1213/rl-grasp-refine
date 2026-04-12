@@ -3,39 +3,34 @@ from __future__ import annotations
 import pandas as pd
 
 from plot_common import (
-    SUMMARY_METRIC_SPECS,
+    ADJUSTED_METRIC_SPECS,
     add_zero_reference,
     build_base_parser,
+    compute_adjusted_per_object_values,
     draw_bar_with_ci,
     draw_point_with_ci,
-    load_table_for_labels,
+    load_per_object_table_with_baseline,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
     set_label_ticks,
-    validate_columns,
+    summarize_adjusted_experiment,
     plt,
 )
 
 FIGURE_STEM = "fig01_main_overall_performance"
 
 
-def prepare_data(summary_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-    spec = SUMMARY_METRIC_SPECS["macro_success_lift"]
-    validate_columns(
-        summary_frame,
-        ("label", "display_name", spec["mean"], spec["ci_low"], spec["ci_high"]),
-        context="summary.csv",
-    )
-    filtered = summary_frame.loc[summary_frame["label"].isin(labels)].copy()
-    return filtered.reset_index(drop=True)
+def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
+    adjusted_frame = compute_adjusted_per_object_values(per_object_frame, labels, metric_key="success_gain")
+    return summarize_adjusted_experiment(adjusted_frame, labels)
 
 
 def build_parser():
     return build_base_parser(
-        "Plot experiment-level macro success lift with 95% CI.",
+        "Plot no-action-adjusted success gain with object-bootstrap 95% CI.",
         default_group="main",
         style_choices=("point", "bar"),
         default_style="point",
@@ -46,9 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = normalize_cli_args(parser.parse_args(argv))
     labels = resolve_selected_labels(args.root, group=args.group, labels=args.labels)
-    summary_frame = load_table_for_labels(args.root, "summary.csv", labels)
-    plot_frame = prepare_data(summary_frame, labels)
-    spec = SUMMARY_METRIC_SPECS["macro_success_lift"]
+    per_object_frame = load_per_object_table_with_baseline(args.root, labels)
+    plot_frame = prepare_data(per_object_frame, labels)
+    spec = ADJUSTED_METRIC_SPECS["success_gain"]
 
     fig, ax = plt.subplots(figsize=(10, 5))
     if args.style == "bar":
@@ -60,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     set_label_ticks(ax, plot_frame)
     ax.set_ylabel(spec["ylabel"])
     ax.set_xlabel("Experiment")
-    ax.set_title("Overall Performance")
+    ax.set_title("No-Action-Adjusted Overall Performance")
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)

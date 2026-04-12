@@ -4,16 +4,16 @@ import pandas as pd
 
 from plot_common import (
     add_zero_reference,
-    average_object_metric_across_seeds,
+    average_adjusted_object_metric_across_seeds,
     build_base_parser,
     color_for,
-    load_table_for_labels,
+    compute_adjusted_per_object_values,
+    load_per_object_table_with_baseline,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
-    validate_columns,
     plt,
 )
 
@@ -21,22 +21,13 @@ FIGURE_STEM = "fig06_object_stability_boxplot"
 
 
 def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-    validate_columns(
-        per_object_frame,
-        ("label", "display_name", "object_id", "success_lift_vs_dataset"),
-        context="per_object_summary.csv",
-    )
-    filtered = per_object_frame.loc[per_object_frame["label"].isin(labels)].copy()
-    return average_object_metric_across_seeds(
-        filtered,
-        labels=labels,
-        value_column="success_lift_vs_dataset",
-    )
+    adjusted_frame = compute_adjusted_per_object_values(per_object_frame, labels, metric_key="success_gain")
+    return average_adjusted_object_metric_across_seeds(adjusted_frame, labels=labels)
 
 
 def build_parser():
     return build_base_parser(
-        "Plot across-object success-lift boxplots after averaging each object across seeds.",
+        "Plot no-action-adjusted object success-gain boxplots after averaging each object across seeds.",
         default_group="ablation",
     )
 
@@ -45,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = normalize_cli_args(parser.parse_args(argv))
     labels = resolve_selected_labels(args.root, group=args.group, labels=args.labels)
-    per_object_frame = load_table_for_labels(args.root, "per_object_summary.csv", labels)
+    per_object_frame = load_per_object_table_with_baseline(args.root, labels)
     averaged_frame = prepare_data(per_object_frame, labels)
     present_labels = [label for label in labels if label in set(averaged_frame["label"])]
 
@@ -71,8 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     ax.set_xticks(range(1, len(display_names) + 1))
     ax.set_xticklabels(display_names, rotation=25, ha="right")
     ax.set_xlabel("Experiment")
-    ax.set_ylabel("Seed-Averaged Object Success Lift")
-    ax.set_title("Across-Object Stability")
+    ax.set_ylabel("Object Success Gain over No-Action")
+    ax.set_title("No-Action-Adjusted Across-Object Stability")
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)

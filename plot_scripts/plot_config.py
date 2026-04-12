@@ -7,6 +7,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUT_DIR = SCRIPT_DIR / "generated"
 DEFAULT_FORMATS = ("png",)
 DEFAULT_DPI = 330
+BASELINE_LABEL = "no-action"
+DEFAULT_BOOTSTRAP_ITERATIONS = 10000
+DEFAULT_BOOTSTRAP_SEED = 17
+CONFIDENCE_LEVEL = 0.95
 
 MAIN_LABELS = (
     "no-action",
@@ -42,10 +46,19 @@ DISPLAY_NAMES = {
     "rand-action": "Random Action",
     "drop-only-latent-only-128-epi": "Vanilla",
     "wo-onl-cal_latefus_128-epi": "w/o Onl. Cal.",
-    "wo-stb-rwd_latefus_128-epi": "w/o Stb. Rrd.",
-    "wo-tac-rwd_latefus_128-epi": "w/o Tac. Rrd.",
-    "wo-tac-sem-n-rwd_latefus_128-epi": "w/o Tac Sem. Rrd.",
+    "wo-stb-rwd_latefus_128-epi": "w/o Stb. Reward",
+    "wo-tac-rwd_latefus_128-epi": "w/o Tac Reward",
+    "wo-tac-sem-n-rwd_latefus_128-epi": "w/o Tac Sem.+Reward",
     "full-latefus-128-epi": "Full",
+}
+
+ADJUSTED_METRIC_DISPLAY_NAMES = {
+    "success_gain": "Success Gain over No-Action",
+    "excess_degradation": "Excess Degradation over No-Action",
+    "excess_recovery": "Excess Recovery over No-Action",
+    "excess_t_cover_delta": "Excess T-Cover Delta over No-Action",
+    "excess_t_edge_delta": "Excess T-Edge Delta over No-Action",
+    "excess_probability_delta": "Excess Probability Delta over No-Action",
 }
 
 # Okabe-Ito color-blind-safe palette plus neutral gray for no-action.

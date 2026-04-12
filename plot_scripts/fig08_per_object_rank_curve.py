@@ -5,16 +5,16 @@ import pandas as pd
 
 from plot_common import (
     add_zero_reference,
-    average_object_metric_across_seeds,
+    average_adjusted_object_metric_across_seeds,
     build_base_parser,
     color_for,
-    load_table_for_labels,
+    compute_adjusted_per_object_values,
+    load_per_object_table_with_baseline,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
-    validate_columns,
     plt,
 )
 
@@ -22,16 +22,8 @@ FIGURE_STEM = "fig08_per_object_rank_curve"
 
 
 def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-    validate_columns(
-        per_object_frame,
-        ("label", "display_name", "object_id", "success_lift_vs_dataset"),
-        context="per_object_summary.csv",
-    )
-    averaged_frame = average_object_metric_across_seeds(
-        per_object_frame.loc[per_object_frame["label"].isin(labels)].copy(),
-        labels=labels,
-        value_column="success_lift_vs_dataset",
-    )
+    adjusted_frame = compute_adjusted_per_object_values(per_object_frame, labels, metric_key="success_gain")
+    averaged_frame = average_adjusted_object_metric_across_seeds(adjusted_frame, labels=labels)
     ranked_frames: list[pd.DataFrame] = []
     for label in labels:
         label_frame = averaged_frame.loc[averaged_frame["label"] == label].copy()
@@ -43,7 +35,7 @@ def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFr
 
 def build_parser():
     return build_base_parser(
-        "Plot per-object success-lift rank curves after averaging each object across seeds.",
+        "Plot no-action-adjusted per-object success-gain rank curves after averaging each object across seeds.",
         default_group="ablation",
     )
 
@@ -52,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = normalize_cli_args(parser.parse_args(argv))
     labels = resolve_selected_labels(args.root, group=args.group, labels=args.labels)
-    per_object_frame = load_table_for_labels(args.root, "per_object_summary.csv", labels)
+    per_object_frame = load_per_object_table_with_baseline(args.root, labels)
     ranked_frame = prepare_data(per_object_frame, labels)
     present_labels = [label for label in labels if label in set(ranked_frame["label"])]
 
@@ -71,8 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     ax.set_xlabel("Object Rank")
-    ax.set_ylabel("Seed-Averaged Object Success Lift")
-    ax.set_title("Per-Object Rank Curve")
+    ax.set_ylabel("Object Success Gain over No-Action")
+    ax.set_title("No-Action-Adjusted Per-Object Rank Curve")
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)

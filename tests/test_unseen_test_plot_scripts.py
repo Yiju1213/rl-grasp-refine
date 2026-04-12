@@ -14,8 +14,12 @@ if str(PLOT_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(PLOT_SCRIPTS_DIR))
 
 import fig01_main_overall_performance as fig01
+import fig02_main_risk_return as fig02
+import fig03_risk_return_scatter as fig03
 import fig04_mechanism_triplet as fig04
+import fig06_object_stability_boxplot as fig06
 import fig07_object_stability_bar as fig07
+import fig08_per_object_rank_curve as fig08
 import fig09_per_run_overlay as fig09
 import plot_common
 import plot_config
@@ -212,34 +216,92 @@ class TestPlotCommon(unittest.TestCase):
             object_75 = averaged.loc[averaged["object_id"] == 75, "seed_avg_value"].iloc[0]
             self.assertAlmostEqual(object_75, 0.02)
 
+    def test_load_per_object_table_with_baseline_auto_loads_no_action(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = write_plot_fixture(Path(tmpdir), labels=("no-action", "full-latefus-128-epi"))
+            frame = plot_common.load_per_object_table_with_baseline(root, ["full-latefus-128-epi"])
+            self.assertEqual(set(frame["label"].unique().tolist()), {"no-action", "full-latefus-128-epi"})
+
+    def test_adjusted_values_are_paired_by_seed_and_object(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = write_plot_fixture(Path(tmpdir), labels=plot_config.ORDERED_LABELS)
+            frame = plot_common.load_per_object_table_with_baseline(root, ["full-latefus-128-epi"])
+            adjusted = plot_common.compute_adjusted_per_object_values(
+                frame,
+                ["full-latefus-128-epi"],
+                metric_key="success_gain",
+            )
+            self.assertEqual(len(adjusted), len(TEST_SEEDS) * len(OBJECT_IDS))
+            self.assertTrue((adjusted["adjusted_value"].round(10) == 0.12).all())
+
+    def test_no_action_adjusted_values_are_zero_when_plotted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = write_plot_fixture(Path(tmpdir), labels=("no-action", "full-latefus-128-epi"))
+            frame = plot_common.load_per_object_table_with_baseline(root, ["no-action", "full-latefus-128-epi"])
+            adjusted = plot_common.compute_adjusted_per_object_values(frame, ["no-action"], metric_key="success_gain")
+            self.assertTrue((adjusted["adjusted_value"].abs() < 1e-12).all())
+
+    def test_missing_no_action_baseline_errors_for_adjusted_loader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = write_plot_fixture(Path(tmpdir), labels=("full-latefus-128-epi",))
+            with self.assertRaisesRegex(ValueError, "baseline"):
+                plot_common.load_per_object_table_with_baseline(root, ["full-latefus-128-epi"])
+
+    def test_adjusted_bootstrap_ci_does_not_reuse_summary_ci(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = write_plot_fixture(Path(tmpdir), labels=plot_config.ORDERED_LABELS)
+            labels = ["full-latefus-128-epi"]
+            per_object_frame = plot_common.load_per_object_table_with_baseline(root, labels)
+            plot_frame = fig01.prepare_data(per_object_frame, labels)
+            self.assertAlmostEqual(float(plot_frame["adjusted_mean"].iloc[0]), 0.12)
+            self.assertAlmostEqual(float(plot_frame["adjusted_ci95_low"].iloc[0]), 0.12)
+            self.assertAlmostEqual(float(plot_frame["adjusted_ci95_high"].iloc[0]), 0.12)
+            self.assertEqual(int(plot_frame["num_objects"].iloc[0]), len(OBJECT_IDS))
+
 
 class TestPlotPreparation(unittest.TestCase):
-    def test_summary_backed_prepare_functions_map_expected_columns(self):
+    def test_adjusted_prepare_functions_map_expected_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = write_plot_fixture(Path(tmpdir))
             labels = list(plot_config.ORDERED_LABELS)
-            summary_frame = plot_common.load_table_for_labels(root, "summary.csv", labels)
+            per_object_frame = plot_common.load_per_object_table_with_baseline(root, labels)
 
-            fig01_data = fig01.prepare_data(summary_frame, labels)
-            self.assertIn("macro_success_lift_mean", fig01_data.columns)
+            fig01_data = fig01.prepare_data(per_object_frame, labels)
+            self.assertIn("adjusted_mean", fig01_data.columns)
             self.assertEqual(set(fig01_data["label"].tolist()), set(labels))
 
-            fig04_data = fig04.prepare_data(summary_frame, labels)
-            self.assertIn("prob_delta_mean_mean", fig04_data.columns)
+            fig02_data = fig02.prepare_data(per_object_frame, labels)
+            self.assertIn("degradation_mean", fig02_data.columns)
+            self.assertIn("recovery_mean", fig02_data.columns)
 
-            fig07_data = fig07.prepare_data(summary_frame, labels, "iqr")
-            self.assertIn("across_object_lift_iqr_mean", fig07_data.columns)
+            fig03_data = fig03.prepare_data(per_object_frame, labels)
+            self.assertIn("degradation_mean", fig03_data.columns)
+            self.assertIn("recovery_mean", fig03_data.columns)
 
-    def test_per_run_overlay_prepare_data_uses_summary_and_run_tables(self):
+            fig04_data = fig04.prepare_data(per_object_frame, labels)
+            self.assertIn("excess_probability_delta", fig04_data)
+            self.assertIn("adjusted_mean", fig04_data["excess_probability_delta"].columns)
+
+            fig06_data = fig06.prepare_data(per_object_frame, labels)
+            self.assertIn("seed_avg_value", fig06_data.columns)
+
+            fig07_data = fig07.prepare_data(per_object_frame, labels, "iqr")
+            self.assertIn("adjusted_stability", fig07_data.columns)
+
+            fig08_data = fig08.prepare_data(per_object_frame, labels)
+            self.assertIn("rank", fig08_data.columns)
+
+    def test_per_run_overlay_prepare_data_uses_adjusted_object_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = write_plot_fixture(Path(tmpdir))
             labels = list(plot_config.ORDERED_LABELS)
-            summary_frame = plot_common.load_table_for_labels(root, "summary.csv", labels)
-            per_run_frame = plot_common.load_table_for_labels(root, "per_run_summary.csv", labels)
-            prepared_summary, prepared_runs = fig09.prepare_data(summary_frame, per_run_frame, labels)
+            per_object_frame = plot_common.load_per_object_table_with_baseline(root, labels)
+            prepared_summary, prepared_runs = fig09.prepare_data(per_object_frame, labels)
             self.assertEqual(len(prepared_summary), len(plot_config.ORDERED_LABELS))
             self.assertEqual(len(prepared_runs), len(plot_config.ORDERED_LABELS) * len(TEST_SEEDS))
             self.assertEqual(sorted(prepared_runs["test_seed"].unique().tolist()), list(TEST_SEEDS))
+            no_action_runs = prepared_runs.loc[prepared_runs["label"] == "no-action", "adjusted_run_mean"]
+            self.assertTrue((no_action_runs.abs() < 1e-12).all())
 
 
 class TestPlotScriptSmoke(unittest.TestCase):
