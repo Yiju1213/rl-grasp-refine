@@ -8,6 +8,7 @@ from plot_common import (
     build_base_parser,
     compute_adjusted_per_object_values,
     load_per_object_table_with_baseline,
+    maybe_print_plot_data,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
@@ -17,9 +18,16 @@ from plot_common import (
     summarize_adjusted_experiment,
     plt,
 )
-from plot_config import BENEFIT_COLOR, RISK_COLOR
+from plot_config import BASELINE_LABEL, BENEFIT_COLOR, RISK_COLOR
 
 FIGURE_STEM = "fig02_main_risk_return"
+
+
+def plot_labels_without_baseline(labels: list[str]) -> list[str]:
+    filtered = [label for label in labels if label != BASELINE_LABEL]
+    if not filtered:
+        raise ValueError(f"{FIGURE_STEM} requires at least one non-baseline label to plot.")
+    return filtered
 
 
 def _summarize_adjusted_metric(per_object_frame: pd.DataFrame, labels: list[str], metric_key: str, prefix: str) -> pd.DataFrame:
@@ -56,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     args = normalize_cli_args(parser.parse_args(argv))
     labels = resolve_selected_labels(args.root, group=args.group, labels=args.labels)
     per_object_frame = load_per_object_table_with_baseline(args.root, labels)
-    plot_frame = prepare_data(per_object_frame, labels)
+    plot_labels = plot_labels_without_baseline(labels)
+    plot_frame = prepare_data(per_object_frame, plot_labels)
 
     positions = np.arange(len(plot_frame), dtype=float)
     width = 0.34
@@ -95,13 +104,12 @@ def main(argv: list[str] | None = None) -> int:
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
     ax.set_ylabel("Rate Difference vs No-Action")
-    ax.set_xlabel("Experiment")
-    ax.set_title("No-Action-Adjusted Risk-Return")
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
     print_written_paths(written)
+    maybe_print_plot_data(args, plot_frame)
     return 0
 
 

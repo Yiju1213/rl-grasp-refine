@@ -11,6 +11,7 @@ from plot_common import (
     compute_adjusted_per_object_values,
     jitter_positions,
     load_per_object_table_with_baseline,
+    maybe_print_plot_data,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
@@ -76,13 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
-    ax.set_xlabel("Experiment")
     ax.set_ylabel(spec["ylabel"])
-    ax.set_title("No-Action-Adjusted Experiment Mean With Per-Run Dots")
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
     print_written_paths(written)
+    maybe_print_plot_data(args, (("experiment_summary", plot_frame), ("run_points", run_frame)))
     return 0
 
 

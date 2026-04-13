@@ -24,11 +24,29 @@ from plot_config import (
     DEFAULT_FORMATS,
     DEFAULT_OUT_DIR,
     DISPLAY_NAMES,
+    FONT_FAMILY,
+    FONT_SIZES,
     GROUPS,
     MARKERS,
     ORDERED_LABELS,
     ROOT_DIR,
 )
+
+
+def apply_plot_style() -> None:
+    plt.rcParams.update(
+        {
+            "font.family": FONT_FAMILY,
+            "axes.titlesize": FONT_SIZES["title"],
+            "axes.labelsize": FONT_SIZES["axis_label"],
+            "xtick.labelsize": FONT_SIZES["tick_label"],
+            "ytick.labelsize": FONT_SIZES["tick_label"],
+            "legend.fontsize": FONT_SIZES["legend"],
+        }
+    )
+
+
+apply_plot_style()
 
 SUMMARY_METRIC_SPECS = {
     "macro_success_lift": {
@@ -169,6 +187,26 @@ def build_base_parser(
         type=int,
         default=DEFAULT_DPI,
         help="Raster export DPI.",
+    )
+    print_data_group = parser.add_mutually_exclusive_group()
+    print_data_group.add_argument(
+        "--print-data",
+        dest="print_data",
+        action="store_true",
+        default=True,
+        help="Print the final data frames used by the plot. Enabled by default.",
+    )
+    print_data_group.add_argument(
+        "--no-print-data",
+        dest="print_data",
+        action="store_false",
+        help="Do not print final plot data.",
+    )
+    parser.add_argument(
+        "--print-data-format",
+        choices=("table", "csv"),
+        default="table",
+        help="Format used by --print-data.",
     )
     if style_choices is not None:
         parser.add_argument(
@@ -552,11 +590,17 @@ def ci_yerr(frame: pd.DataFrame, *, mean_col: str, low_col: str, high_col: str) 
     return np.vstack([lower, upper])
 
 
-def set_default_axis_style(ax: plt.Axes) -> None:
+def set_default_axis_style(ax: plt.Axes, *, boxed: bool = True) -> None:
     ax.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.7)
     ax.set_axisbelow(True)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    for spine in ax.spines.values():
+        spine.set_visible(boxed)
+        spine.set_color("#4A4A4A")
+        spine.set_linewidth(1.0)
+    if not boxed:
+        ax.spines["left"].set_visible(True)
+        ax.spines["bottom"].set_visible(True)
+    ax.tick_params(axis="both", color="#4A4A4A", width=1.0)
 
 
 def set_label_ticks(ax: plt.Axes, frame: pd.DataFrame) -> None:
@@ -586,6 +630,29 @@ def save_figure(
 def print_written_paths(paths: Sequence[Path]) -> None:
     for path in paths:
         print(path)
+
+
+def _format_plot_data(frame: pd.DataFrame, *, output_format: str) -> str:
+    if output_format == "csv":
+        return frame.to_csv(index=False).rstrip()
+    return frame.to_string(index=False)
+
+
+def maybe_print_plot_data(
+    args: argparse.Namespace,
+    data: pd.DataFrame | dict[str, pd.DataFrame] | Sequence[tuple[str, pd.DataFrame]],
+) -> None:
+    if not bool(getattr(args, "print_data", False)):
+        return
+    output_format = str(getattr(args, "print_data_format", "table"))
+    if isinstance(data, pd.DataFrame):
+        print("\n[plot-data]")
+        print(_format_plot_data(data, output_format=output_format))
+        return
+    items = data.items() if isinstance(data, dict) else data
+    for name, frame in items:
+        print(f"\n[plot-data:{name}]")
+        print(_format_plot_data(frame, output_format=output_format))
 
 
 def add_zero_reference(ax: plt.Axes) -> None:

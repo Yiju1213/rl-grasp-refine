@@ -10,6 +10,7 @@ from plot_common import (
     draw_bar_with_ci,
     draw_point_with_ci,
     load_per_object_table_with_baseline,
+    maybe_print_plot_data,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
@@ -54,12 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
     ax.set_ylabel(spec["ylabel"])
-    ax.set_xlabel("Experiment")
-    ax.set_title("No-Action-Adjusted Overall Performance")
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
     print_written_paths(written)
+    maybe_print_plot_data(args, plot_frame)
     return 0
 
 

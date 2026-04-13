@@ -4,11 +4,13 @@ import pandas as pd
 
 from plot_common import (
     ADJUSTED_METRIC_SPECS,
+    FONT_SIZES,
     build_base_parser,
     color_for,
     compute_adjusted_per_object_values,
     load_per_object_table_with_baseline,
     marker_for,
+    maybe_print_plot_data,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
@@ -63,18 +65,18 @@ def main(argv: list[str] | None = None) -> int:
             (float(row["degradation_mean"]), float(row["recovery_mean"])),
             textcoords="offset points",
             xytext=(6, 6),
-            fontsize=9,
+            fontsize=FONT_SIZES["annotation"],
         )
     set_default_axis_style(ax)
     ax.axhline(0.0, color="#6E6E6E", linewidth=1.0, linestyle="--", alpha=0.8)
     ax.axvline(0.0, color="#6E6E6E", linewidth=1.0, linestyle="--", alpha=0.8)
     ax.set_xlabel(degradation_spec["ylabel"])
     ax.set_ylabel(recovery_spec["ylabel"])
-    ax.set_title("No-Action-Adjusted Risk-Return Frontier")
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
     print_written_paths(written)
+    maybe_print_plot_data(args, plot_frame)
     return 0
 
 

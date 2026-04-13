@@ -10,6 +10,7 @@ from plot_common import (
     color_for,
     compute_adjusted_per_object_values,
     load_per_object_table_with_baseline,
+    maybe_print_plot_data,
     normalize_cli_args,
     print_written_paths,
     resolve_selected_labels,
@@ -64,12 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     add_zero_reference(ax)
     ax.set_xlabel("Object Rank")
     ax.set_ylabel("Object Success Gain over No-Action")
-    ax.set_title("No-Action-Adjusted Per-Object Rank Curve")
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
     print_written_paths(written)
+    maybe_print_plot_data(args, ranked_frame)
     return 0
 
 

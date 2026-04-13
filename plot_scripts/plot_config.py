@@ -11,6 +11,14 @@ BASELINE_LABEL = "no-action"
 DEFAULT_BOOTSTRAP_ITERATIONS = 10000
 DEFAULT_BOOTSTRAP_SEED = 17
 CONFIDENCE_LEVEL = 0.95
+FONT_FAMILY = "DejaVu Sans"
+FONT_SIZES = {
+    "title": 15,
+    "axis_label": 13,
+    "tick_label": 11,
+    "legend": 11,
+    "annotation": 9,
+}
 
 MAIN_LABELS = (
     "no-action",
@@ -43,7 +51,7 @@ GROUPS = {
 
 DISPLAY_NAMES = {
     "no-action": "No Action",
-    "rand-action": "Random Action",
+    "rand-action": "Rand. Action",
     "drop-only-latent-only-128-epi": "Vanilla",
     "wo-onl-cal_latefus_128-epi": "w/o Onl. Cal.",
     "wo-stb-rwd_latefus_128-epi": "w/o Stb. Reward",
