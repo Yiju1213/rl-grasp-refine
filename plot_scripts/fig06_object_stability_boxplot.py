@@ -11,10 +11,12 @@ from plot_common import (
     load_per_object_table_with_baseline,
     maybe_print_plot_data,
     normalize_cli_args,
+    percent_label,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
+    FIGURE_SIZE_4_3,
     plt,
 )
 
@@ -50,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         for label in present_labels
     ]
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.2))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     boxplot = ax.boxplot(grouped_data, patch_artist=True, widths=0.6)
     for patch, label in zip(boxplot["boxes"], present_labels):
         patch.set_facecolor(color_for(label))
@@ -62,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     add_zero_reference(ax)
     ax.set_xticks(range(1, len(display_names) + 1))
     ax.set_xticklabels(display_names, rotation=25, ha="right")
-    ax.set_ylabel("Object Success Gain over No-Action")
+    ax.set_ylabel(percent_label("Object Success Gain over No-Action"))
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)

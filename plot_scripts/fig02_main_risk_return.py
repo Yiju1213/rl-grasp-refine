@@ -10,12 +10,14 @@ from plot_common import (
     load_per_object_table_with_baseline,
     maybe_print_plot_data,
     normalize_cli_args,
+    percent_label,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
     set_label_ticks,
     summarize_adjusted_experiment,
+    FIGURE_SIZE_4_3,
     plt,
 )
 from plot_config import BASELINE_LABEL, BENEFIT_COLOR, RISK_COLOR
@@ -69,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     positions = np.arange(len(plot_frame), dtype=float)
     width = 0.34
-    fig, ax = plt.subplots(figsize=(10.5, 5.2))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     ax.bar(positions - width / 2.0, plot_frame["degradation_mean"], width=width, color=RISK_COLOR, label="Excess Degradation")
     ax.bar(positions + width / 2.0, plot_frame["recovery_mean"], width=width, color=BENEFIT_COLOR, label="Excess Recovery")
     ax.errorbar(
@@ -103,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
-    ax.set_ylabel("Rate Difference vs No-Action")
+    ax.set_ylabel(percent_label("Rate Difference over No-Action"))
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)

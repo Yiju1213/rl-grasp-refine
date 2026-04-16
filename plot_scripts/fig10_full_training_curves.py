@@ -10,9 +10,11 @@ import numpy as np
 import pandas as pd
 
 from plot_common import (
+    FIGURE_SIZE_4_3,
     add_zero_reference,
     maybe_print_plot_data,
     normalize_multi_value,
+    percent_label,
     print_written_paths,
     save_figure,
     set_default_axis_style,
@@ -226,7 +228,7 @@ def prepare_data(
 
 
 def plot_training_curves(plot_frame: pd.DataFrame, *, dpi: int, out_dir: Path | str) -> list[Path]:
-    fig, ax = plt.subplots(figsize=(9.2, 4.8))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     for metric, metric_frame in plot_frame.groupby("metric", sort=False):
         style = METRIC_STYLES.get(
             str(metric),
@@ -256,10 +258,10 @@ def plot_training_curves(plot_frame: pd.DataFrame, *, dpi: int, out_dir: Path | 
             zorder=int(style["zorder"]) - 1,
         )
 
-    set_default_axis_style(ax, boxed=False)
+    set_default_axis_style(ax)
     add_zero_reference(ax)
     ax.set_xlabel("Training Iteration")
-    ax.set_ylabel("Success Lift vs Dataset")
+    ax.set_ylabel(percent_label("Success Lift vs Dataset"))
     ax.legend(frameon=False, loc="best")
     written = save_figure(fig, out_dir=out_dir, stem=FIGURE_STEM, formats=("png",), dpi=dpi)
     plt.close(fig)

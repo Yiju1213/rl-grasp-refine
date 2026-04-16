@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import MultipleLocator
 
 from plot_common import (
     add_zero_reference,
@@ -10,12 +11,15 @@ from plot_common import (
     color_for,
     compute_adjusted_per_object_values,
     load_per_object_table_with_baseline,
+    marker_for,
     maybe_print_plot_data,
     normalize_cli_args,
+    percent_label,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
+    FIGURE_SIZE_4_3,
     plt,
 )
 
@@ -49,13 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     ranked_frame = prepare_data(per_object_frame, labels)
     present_labels = [label for label in labels if label in set(ranked_frame["label"])]
 
-    fig, ax = plt.subplots(figsize=(10.0, 5.2))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     for label in present_labels:
         label_frame = ranked_frame.loc[ranked_frame["label"] == label].copy()
         ax.plot(
             label_frame["rank"].to_numpy(dtype=float),
             label_frame["seed_avg_value"].to_numpy(dtype=float),
-            marker="o",
+            marker=marker_for(label),
             markersize=4.5,
             linewidth=1.6,
             color=color_for(label),
@@ -64,7 +68,10 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     ax.set_xlabel("Object Rank")
-    ax.set_ylabel("Object Success Gain over No-Action")
+    max_rank = int(ranked_frame["rank"].max())
+    ax.set_xticks(np.arange(1, max_rank + 1, dtype=int))
+    ax.set_ylabel(percent_label("Object Success Gain over No-Action"))
+    ax.yaxis.set_major_locator(MultipleLocator(0.05))
     ax.legend(frameon=False)
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)

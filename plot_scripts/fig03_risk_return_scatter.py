@@ -12,11 +12,13 @@ from plot_common import (
     marker_for,
     maybe_print_plot_data,
     normalize_cli_args,
+    percent_label,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
     set_default_axis_style,
     summarize_adjusted_experiment,
+    FIGURE_SIZE_4_3,
     plt,
 )
 
@@ -51,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     degradation_spec = ADJUSTED_METRIC_SPECS["excess_degradation"]
     recovery_spec = ADJUSTED_METRIC_SPECS["excess_recovery"]
 
-    fig, ax = plt.subplots(figsize=(7.5, 6.0))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     for _, row in plot_frame.iterrows():
         ax.scatter(
             float(row["degradation_mean"]),
@@ -71,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     ax.axhline(0.0, color="#6E6E6E", linewidth=1.0, linestyle="--", alpha=0.8)
     ax.axvline(0.0, color="#6E6E6E", linewidth=1.0, linestyle="--", alpha=0.8)
     ax.set_xlabel(degradation_spec["ylabel"])
-    ax.set_ylabel(recovery_spec["ylabel"])
+    ax.set_ylabel(percent_label(recovery_spec["ylabel"]))
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)

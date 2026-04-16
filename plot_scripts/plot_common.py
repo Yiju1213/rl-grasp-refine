@@ -24,6 +24,7 @@ from plot_config import (
     DEFAULT_FORMATS,
     DEFAULT_OUT_DIR,
     DISPLAY_NAMES,
+    FIGURE_SIZE_4_3,
     FONT_FAMILY,
     FONT_SIZES,
     GROUPS,
@@ -557,6 +558,10 @@ def color_for(label: str) -> str:
 
 def marker_for(label: str) -> str:
     return MARKERS.get(label, "o")
+
+
+def percent_label(label: str) -> str:
+    return label if label.endswith("(%)") else f"{label} (%)"
 
 
 def validate_columns(frame: pd.DataFrame, columns: Sequence[str], *, context: str) -> None:

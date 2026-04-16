@@ -19,6 +19,7 @@ from plot_common import (
     set_default_axis_style,
     set_label_ticks,
     summarize_adjusted_object_stability,
+    FIGURE_SIZE_4_3,
     plt,
 )
 
@@ -49,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     spec = STABILITY_METRIC_SPECS[args.metric]
 
     positions = np.arange(len(plot_frame), dtype=float)
-    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     ax.bar(
         positions,
         plot_frame[spec["column"]].to_numpy(dtype=float),

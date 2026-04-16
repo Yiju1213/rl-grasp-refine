@@ -13,6 +13,7 @@ from plot_common import (
     load_per_object_table_with_baseline,
     maybe_print_plot_data,
     normalize_cli_args,
+    percent_label,
     print_written_paths,
     resolve_selected_labels,
     save_figure,
@@ -20,6 +21,7 @@ from plot_common import (
     set_label_ticks,
     summarize_adjusted_experiment,
     summarize_adjusted_runs,
+    FIGURE_SIZE_4_3,
     plt,
 )
 
@@ -49,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     plot_frame, run_frame = prepare_data(per_object_frame, labels)
     spec = ADJUSTED_METRIC_SPECS["success_gain"]
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.3))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_4_3)
     for index, row in plot_frame.reset_index(drop=True).iterrows():
         ax.errorbar(
             index,
@@ -77,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
-    ax.set_ylabel(spec["ylabel"])
+    ax.set_ylabel(percent_label(spec["ylabel"]))
 
     written = save_figure(fig, out_dir=args.out_dir, stem=FIGURE_STEM, formats=args.formats, dpi=args.dpi)
     plt.close(fig)
