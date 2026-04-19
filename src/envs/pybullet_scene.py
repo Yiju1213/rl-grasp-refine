@@ -337,6 +337,14 @@ class PyBulletScene:
         return (self.sample_cfg or {}).get("runtime", {})
 
     @staticmethod
+    def _resolve_post_refine_settle_steps(runtime_cfg: dict[str, Any], stage: str) -> int:
+        if stage != "refine":
+            return 0
+        if not bool(runtime_cfg.get("post_refine_settle_enabled", True)):
+            return 0
+        return max(int(runtime_cfg.get("post_refine_settle_steps", 8)), 0)
+
+    @staticmethod
     def _staging_hand_pose_world() -> dict[str, list[float]]:
         return {
             "position": [0.0, 0.0, 2.0],
@@ -432,7 +440,7 @@ class PyBulletScene:
         close_timeout_s = float(self._runtime_cfg().get("close_timeout_s", 1.0))
         effort_timeout_s = float(self._runtime_cfg().get("effort_timeout_s", 1.0))
         grip_force = float(self._runtime_cfg().get("grip_force", 30.0))
-        settle_steps = int(self._runtime_cfg().get("post_refine_settle_steps", 8)) if stage == "refine" else 0
+        settle_steps = self._resolve_post_refine_settle_steps(self._runtime_cfg(), stage)
         close_steps = max(int(close_timeout_s / max(time_step, 1e-6)), 1)
         effort_steps = max(int(effort_timeout_s / max(time_step, 1e-6)), 1)
         result = {

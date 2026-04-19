@@ -5,7 +5,9 @@ from binascii import crc32
 
 import numpy as np
 import torch
+from PIL import Image
 
+from src.perception.cnnmca_types import PreparedCNNMCAInputs
 from src.perception.sga_gsn_types import PreparedVTGInputs
 from src.structures.observation import RawSensorObservation
 from src.utils.geometry import (
@@ -316,3 +318,62 @@ class DGCNNAdapter(SGAGSNAdapter):
     """Stub-compatible adapter matching the DGCNN placeholder."""
 
     pass
+
+
+class CNNMCAAdapter(PerceptionInputAdapter):
+    """Bridge raw env RGB observations to CNNMCA's 2D VTG inputs."""
+
+    _IMAGENET_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
+    _IMAGENET_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
+
+    def __init__(self, cfg: dict | None = None):
+        cfg = cfg or {}
+        runtime_cfg = cfg.get("cnnmca", {}).get("runtime", {})
+        self.image_size = int(runtime_cfg.get("image_size", 224))
+        self.concat_two_tactile = bool(runtime_cfg.get("concat_two_tactile", True))
+        if self.image_size <= 0:
+            raise ValueError(f"CNNMCA image_size must be positive. Got {self.image_size}.")
+
+    def adapt_feature_input(self, raw_obs: RawSensorObservation) -> dict[str, torch.Tensor]:
+        prepared = self.prepare_inputs(raw_obs)
+        return {
+            "visual_img": torch.from_numpy(prepared.visual_img).unsqueeze(0),
+            "tactile_img": torch.from_numpy(prepared.tactile_img).unsqueeze(0),
+        }
+
+    def prepare_inputs(self, raw_obs: RawSensorObservation) -> PreparedCNNMCAInputs:
+        visual_rgb = self._require_rgb(raw_obs.visual_data, key="rgb", source="visual_data")
+        tactile_rgb = self._require_rgb(raw_obs.tactile_data, key="rgb", source="tactile_data")
+        tactile_rgb = np.asarray(tactile_rgb)
+        if tactile_rgb.ndim != 4 or tactile_rgb.shape[0] < 2 or tactile_rgb.shape[-1] != 3:
+            raise ValueError(
+                "CNNMCA tactile_data['rgb'] must have shape (2, H, W, 3) or compatible. "
+                f"Got {tactile_rgb.shape}."
+            )
+        if not self.concat_two_tactile:
+            raise NotImplementedError("CNNMCAAdapter currently supports concat_two_tactile=true only.")
+
+        tactile_concat = np.concatenate([tactile_rgb[0], tactile_rgb[1]], axis=1)
+        return PreparedCNNMCAInputs(
+            visual_img=self._to_chw_normalized_rgb(visual_rgb),
+            tactile_img=self._to_chw_normalized_rgb(tactile_concat),
+        )
+
+    @staticmethod
+    def _require_rgb(container, *, key: str, source: str):
+        if not isinstance(container, dict) or key not in container:
+            raise ValueError(f"CNNMCAAdapter requires {source}[{key!r}].")
+        return container[key]
+
+    def _to_chw_normalized_rgb(self, rgb) -> np.ndarray:
+        array = np.asarray(rgb)
+        if array.ndim != 3 or array.shape[-1] != 3:
+            raise ValueError(f"CNNMCA RGB input must have shape (H, W, 3). Got {array.shape}.")
+        if array.dtype != np.uint8:
+            array = np.clip(array, 0, 255).astype(np.uint8)
+
+        image = Image.fromarray(array, mode="RGB")
+        image = image.resize((self.image_size, self.image_size), resample=Image.BILINEAR)
+        image_array = np.asarray(image, dtype=np.float32) / 255.0
+        chw = np.transpose(image_array, (2, 0, 1))
+        return ((chw - self._IMAGENET_MEAN) / self._IMAGENET_STD).astype(np.float32)

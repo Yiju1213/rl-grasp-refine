@@ -22,6 +22,7 @@ dataset:
     grip_force: 30.0
     release_duration_s: 1.5
     release_check_interval_steps: 10
+    post_refine_settle_enabled: true
     post_refine_settle_steps: 8
 
 scene:

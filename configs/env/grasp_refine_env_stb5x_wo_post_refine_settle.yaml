@@ -22,7 +22,7 @@ dataset:
     grip_force: 30.0
     release_duration_s: 1.5
     release_check_interval_steps: 10
-    post_refine_settle_enabled: true
+    post_refine_settle_enabled: false
     post_refine_settle_steps: 8
 
 scene:
@@ -45,9 +45,9 @@ action:
   rotation_bound: [0.1, 0.1, 0.1]
 
 reward:
-  # 对三项论文 reward 的显式缩放系数。消融实验可直接把某一项设为 0。
+  # 对三项论文 reward 的显式缩放系数。当前 baseline 仅放大 stability reward。
   drop_weight: 1.0
-  stability_weight: 1.0
+  stability_weight: 5.0
   contact_weight: 1.0
 
   # 论文形式：R_stability = Delta p / (1 + kappa * tr(P))

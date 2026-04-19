@@ -47,3 +47,4 @@ docs/train-result
 docs/signal_plot.md
 plot_scripts/generated/
 plot_scripts/SIMSUN*
+configs/experiment/backup

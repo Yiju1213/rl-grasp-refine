@@ -12,6 +12,21 @@ from src.structures.action import GraspPose
 
 
 class TestPyBulletSceneSmoke(unittest.TestCase):
+    def test_post_refine_settle_toggle_resolution(self):
+        resolve = PyBulletScene._resolve_post_refine_settle_steps
+
+        self.assertEqual(resolve({"post_refine_settle_steps": 8}, "reset"), 0)
+        self.assertEqual(resolve({}, "refine"), 8)
+        self.assertEqual(resolve({"post_refine_settle_steps": 2}, "refine"), 2)
+        self.assertEqual(
+            resolve({"post_refine_settle_enabled": False, "post_refine_settle_steps": 8}, "refine"),
+            0,
+        )
+        self.assertEqual(
+            resolve({"post_refine_settle_enabled": True, "post_refine_settle_steps": -1}, "refine"),
+            0,
+        )
+
     def test_scene_can_reset_and_refine_from_real_dataset_sample(self):
         dataset_root = Path("/Datasets/GraspNet-1billion/tactile-extended")
         if not dataset_root.exists():

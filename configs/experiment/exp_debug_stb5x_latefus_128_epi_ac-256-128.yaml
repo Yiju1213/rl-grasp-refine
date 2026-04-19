@@ -3,7 +3,7 @@
 # scripts/debug_single_rollout.py、scripts/debug_calibrator.py 共同读取。
 
 # 实验名。训练输出会写到 logging.log_dir/<name>/ 下。
-name: rwd-grp-b_stb-rwd-10x_96-epi_paper-spec
+name: rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_ac-256-128
 
 # 实验随机种子。train/evaluate 脚本会优先用这里的值。
 seed: 7
@@ -25,7 +25,7 @@ val_object_count: 4
 val_object_ratio:
 
 # 训练迭代数。当前 train.py -> Trainer.train() 直接读取。
-num_iterations: 400
+num_iterations: 500
 
 # 机制消融 preset。由 apply_experiment_overrides() 展开到 env/model/calibration。
 ablation:
@@ -54,13 +54,13 @@ validation:
   num_workers: 8
   num_episodes: 384
   worker_recycle_every_n_iterations: 1
-  worker_recycle_slots_per_event: 1
+  worker_recycle_slots_per_event: 2
   worker_recycle_enable_standby_prefetch: true
-  worker_recycle_prefetch_count: 1
+  worker_recycle_prefetch_count: 2
 
 configs:
   # 环境主配置路径。build_env() 会消费其中的大部分字段。
-  env: configs/env/grasp_refine_env_stb10x.yaml
+  env: configs/env/grasp_refine_env_stb5x.yaml
 
   # perception 主配置路径。当前真实生效的是这个文件里的 backbone/predictor 段。
   perception: configs/perception/perception.yaml
@@ -69,10 +69,10 @@ configs:
   calibration: configs/calibration/online_calibrator.yaml
 
   # PPO / Trainer 配置路径。由 PPOAgent 和 Trainer 读取。
-  rl: configs/rl/ppo.yaml
+  rl: configs/rl/ppo_128_epi.yaml
 
   # actor-critic 网络配置路径。当前 build_actor_critic() 直接消费。
-  actor_critic: configs/model/actor_critic.yaml
+  actor_critic: configs/model/actor_critic_latefus_ac-256-128.yaml
 
 logging:
   # 训练输出根目录。实际产物会写到 log_dir/<name>/ 下。

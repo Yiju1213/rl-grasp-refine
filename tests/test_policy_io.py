@@ -67,6 +67,28 @@ class TestPolicyIO(unittest.TestCase):
         self.assertEqual(action_log_std.shape, (2, 6))
         self.assertEqual(value_tensor.shape, (2, 1))
 
+    def test_late_fusion_supports_multiple_post_fusion_layers(self):
+        cfg = make_actor_critic_cfg()
+        cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        cfg["policy_hidden_dims"] = [32, 24, 16]
+        cfg["value_hidden_dims"] = [32, 20, 12]
+        policy = LatentFirstLateFusionPolicyNetwork(latent_dim=32, aux_dim=2, action_dim=6, cfg=cfg)
+        value = LatentFirstLateFusionValueNetwork(latent_dim=32, aux_dim=2, cfg=cfg)
+
+        obs_tensor = torch.zeros(4, 34)
+        action_mean, action_log_std = policy(obs_tensor)
+        value_tensor = value(obs_tensor)
+
+        self.assertEqual(action_mean.shape, (4, 6))
+        self.assertEqual(action_log_std.shape, (4, 6))
+        self.assertEqual(value_tensor.shape, (4, 1))
+        self.assertEqual(policy.latent_layer.out_features, 32)
+        self.assertEqual(policy.trunk[0].in_features, 34)
+        self.assertEqual(policy.trunk[0].out_features, 24)
+        self.assertEqual(policy.trunk[2].out_features, 16)
+        self.assertEqual(value.trunk[0].out_features, 20)
+        self.assertEqual(value.trunk[2].out_features, 12)
+
 
 if __name__ == "__main__":
     unittest.main()

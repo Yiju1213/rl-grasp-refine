@@ -1,0 +1,30 @@
+# perception 主配置。
+# 当前由 scripts/_common.py -> build_env() -> build_perception_stack() 直接消费。
+
+# CNNMCA 使用 env 已有 visual/tactile RGB，输出 512 维 latent + raw stability logit。
+adapter_type: cnnmca
+
+feature_extractor:
+  # CNNMCA 作为冻结的预训练稳定性前端使用。
+  freeze: true
+
+backbone:
+  # CNNMCA fusion_transformer.embed_dim。actor-critic 输入维度会由该值推断。
+  latent_dim: 512
+
+predictor:
+  # adapter_type=cnnmca 时不单独构建 predictor；raw logit 由 runtime 的 classifier 输出。
+  hidden_dim: 64
+
+contact_semantics:
+  # tactile 激活阈值。超过这个阈值的 contact 值会被视为 active contact。
+  tactile_threshold: 0.2
+
+cnnmca:
+  runtime:
+    source_root: /AdaPoinTr
+    device: cuda:0
+    config_path: /AdaPoinTr/experiments/VTG_CNNMCA/3D_VTG_models/VTG2D_RGB_CNNMCA/config.yaml
+    checkpoint: /AdaPoinTr/experiments/VTG_CNNMCA/3D_VTG_models/VTG2D_RGB_CNNMCA/ckpt-best.pth
+    image_size: 224
+    concat_two_tactile: true
