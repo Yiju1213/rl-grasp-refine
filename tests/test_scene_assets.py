@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from src.envs.scene_assets import destroy_tacto_sensor, remove_object_from_tacto_sensor
+from src.envs.scene_assets import destroy_tacto_sensor, remove_object_from_tacto_sensor, spawn_table
 
 
 class _FakeScene:
@@ -52,6 +53,22 @@ class _FakeSensor:
 
 
 class TestSceneAssets(unittest.TestCase):
+    def test_spawn_table_resolves_repo_relative_path_and_uses_static_body(self):
+        expected_urdf = (Path(__file__).resolve().parents[1] / "src/envs/object_model/table/table.urdf").resolve()
+        with patch("src.envs.scene_assets.px.Body") as body_mock:
+            spawn_table({"urdf_path": "src/envs/object_model/table/table.urdf"})
+
+        kwargs = body_mock.call_args.kwargs
+        self.assertTrue(Path(kwargs["urdf_path"]).is_absolute())
+        self.assertEqual(Path(kwargs["urdf_path"]).resolve(), expected_urdf)
+        self.assertEqual(kwargs["base_position"], [0, 0, 0])
+        self.assertEqual(kwargs["base_orientation"], [0, 0, 0, 1])
+        self.assertTrue(kwargs["use_fixed_base"])
+
+    def test_spawn_table_missing_urdf_has_clear_error(self):
+        with self.assertRaisesRegex(FileNotFoundError, "Missing table URDF"):
+            spawn_table({"urdf_path": "/definitely/missing/table.urdf"})
+
     def test_remove_object_from_tacto_sensor_clears_refs_and_flushes_renderer(self):
         sensor = _FakeSensor()
         current_node = object()

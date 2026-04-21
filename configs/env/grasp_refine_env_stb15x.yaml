@@ -34,6 +34,12 @@ scene:
   visual_near: 0.01
   visual_far: 2.0
   visualize_tacto_gui: false
+  table:
+    enabled: false
+    urdf_path: src/envs/object_model/table/table.urdf
+    base_position: [0, 0, 0]
+    base_orientation: [0, 0, 0, 1]
+    use_fixed_base: true
 
 action:
   # policy 输出前 3 维的物理平移上限（米）。

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -12,6 +14,51 @@ from src.structures.action import GraspPose
 
 
 class TestPyBulletSceneSmoke(unittest.TestCase):
+    def test_table_disabled_by_default_is_not_spawned(self):
+        fake_hand = SimpleNamespace(id=1, gsmini_joint_ids=[0])
+        with (
+            patch.object(PyBulletScene, "_connect"),
+            patch("src.envs.pybullet_scene.spawn_hand", return_value=fake_hand),
+            patch("src.envs.pybullet_scene.create_tacto_sensor", return_value=SimpleNamespace()),
+            patch("src.envs.pybullet_scene.spawn_table") as table_mock,
+        ):
+            scene = PyBulletScene({"use_gui": False})
+            scene._ensure_static_scene_assets()
+
+        table_mock.assert_not_called()
+        self.assertIsNone(scene.table_body)
+        snapshot = scene.get_debug_snapshot()
+        self.assertFalse(snapshot["table"]["enabled"])
+        self.assertIsNone(snapshot["table"]["body_id"])
+
+    def test_table_enabled_spawns_once_and_is_reported_in_debug_snapshot(self):
+        fake_hand = SimpleNamespace(id=1, gsmini_joint_ids=[0])
+        fake_table = SimpleNamespace(id=42)
+        expected_urdf = (Path(__file__).resolve().parents[1] / "src/envs/object_model/table/table.urdf").resolve()
+        table_cfg = {
+            "enabled": True,
+            "urdf_path": "src/envs/object_model/table/table.urdf",
+            "base_position": [0, 0, 0],
+            "base_orientation": [0, 0, 0, 1],
+            "use_fixed_base": True,
+        }
+        with (
+            patch.object(PyBulletScene, "_connect"),
+            patch("src.envs.pybullet_scene.spawn_hand", return_value=fake_hand),
+            patch("src.envs.pybullet_scene.create_tacto_sensor", return_value=SimpleNamespace()),
+            patch("src.envs.pybullet_scene.spawn_table", return_value=fake_table) as table_mock,
+        ):
+            scene = PyBulletScene({"use_gui": False, "table": table_cfg})
+            scene._ensure_static_scene_assets()
+            scene._ensure_static_scene_assets()
+
+        table_mock.assert_called_once_with(table_cfg)
+        self.assertIs(scene.table_body, fake_table)
+        snapshot = scene.get_debug_snapshot()
+        self.assertTrue(snapshot["table"]["enabled"])
+        self.assertEqual(snapshot["table"]["body_id"], 42)
+        self.assertEqual(Path(snapshot["table"]["urdf_path"]).resolve(), expected_urdf)
+
     def test_post_refine_settle_toggle_resolution(self):
         resolve = PyBulletScene._resolve_post_refine_settle_steps
 

@@ -66,12 +66,14 @@ class PerceptionInputAdapter(ABC):
         raise NotImplementedError("This adapter does not support VTG3D input preparation.")
 
 
-class SGAGSNAdapter(PerceptionInputAdapter):
-    """Bridge raw env observations to VTG3D-style SGA-GSN inputs."""
+class VTG3DAdapter(PerceptionInputAdapter):
+    """Bridge raw env observations to VTG3D-style 3D perception inputs."""
+
+    runtime_section = ""
 
     def __init__(self, cfg: dict | None = None):
         cfg = cfg or {}
-        runtime_cfg = cfg.get("sga_gsn", {}).get("runtime", {})
+        runtime_cfg = cfg.get(self.runtime_section, {}).get("runtime", {})
         self.vis_points = int(runtime_cfg.get("vis_points", 2048))
         self.tac_points_per_side = int(runtime_cfg.get("tac_points_per_side", 1200))
         self.sc_input_points = int(runtime_cfg.get("sc_input_points", 2048))
@@ -314,10 +316,16 @@ class SGAGSNAdapter(PerceptionInputAdapter):
         return np.concatenate([points, points[extra_indices]], axis=0).astype(np.float32)
 
 
-class DGCNNAdapter(SGAGSNAdapter):
-    """Stub-compatible adapter matching the DGCNN placeholder."""
+class SGAGSNAdapter(VTG3DAdapter):
+    """Bridge raw env observations to VTG3D-style SGA-GSN inputs."""
 
-    pass
+    runtime_section = "sga_gsn"
+
+
+class DGCNNAdapter(VTG3DAdapter):
+    """Bridge raw env observations to VTG3D-style DGCNN inputs."""
+
+    runtime_section = "dgcnn"
 
 
 class CNNMCAAdapter(PerceptionInputAdapter):

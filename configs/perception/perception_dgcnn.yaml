@@ -1,0 +1,36 @@
+# perception 主配置。
+# 当前由 scripts/_common.py -> build_env() -> build_perception_stack() 直接消费。
+
+# AdaPoinTr VTG-DGCNN 14M 使用与 SGA-GSN 一致的 3D VTG sc_input/gs_input。
+adapter_type: dgcnn
+
+feature_extractor:
+  # DGCNN 作为冻结的预训练稳定性前端使用。
+  freeze: true
+
+backbone:
+  # VTG_DGCNN_14M: visual encoder 4096 + tactile encoder 4096。
+  latent_dim: 8192
+
+predictor:
+  # adapter_type=dgcnn 时不单独构建 predictor；raw logit 由 DGCNN runtime 的 predict_head 输出。
+  hidden_dim: 64
+
+contact_semantics:
+  # tactile 激活阈值。超过这个阈值的 contact 值会被视为 active contact。
+  tactile_threshold: 0.2
+
+dgcnn:
+  runtime:
+    source_root: /AdaPoinTr
+    device: cuda:0
+    config_path: /AdaPoinTr/cfgs/3D_VTG_models/VTG_DGCNN_14M.yaml
+    shape_checkpoint: /AdaPoinTr/ckpts/ap_ps55.pth
+    grasp_checkpoint: /AdaPoinTr/experiments/VTG_DGCNN/3D_VTG_models/Grouper_14M_Bs72/ckpt-best.pth
+    vis_points: 2048
+    tac_points_per_side: 1200
+    sc_input_points: 2048
+    tactile_step: 8
+    camera_distance_to_gel_m: 0.02315
+    tactile_noise_eps: 0.0001
+    # 采样 seed 由 experiment.seed 统一注入。

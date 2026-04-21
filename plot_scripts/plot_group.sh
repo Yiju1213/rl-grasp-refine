@@ -13,7 +13,7 @@ PRINT_DATA_FORMAT="table"
 usage() {
   cat <<'EOF'
 Usage:
-  plot_scripts/plot_group.sh [main|ablation] [options]
+  plot_scripts/plot_group.sh [main|ablation|backbone_ac] [options]
 
 Options:
   --root PATH              Formal eval root directory.
@@ -65,10 +65,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${GROUP}" in
-  main|ablation)
+  main|ablation|backbone_ac)
     ;;
   *)
-    echo "Unsupported group: ${GROUP}. Expected main or ablation." >&2
+    echo "Unsupported group: ${GROUP}. Expected main, ablation, or backbone_ac." >&2
     exit 2
     ;;
 esac

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import gc
+from pathlib import Path
 
 import cv2
 import pybullet as pb
@@ -19,6 +20,16 @@ else:  # pragma: no cover - platform-specific best effort.
     _LIBC.malloc_trim.argtypes = [ctypes.c_size_t]
     _LIBC.malloc_trim.restype = ctypes.c_int
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TABLE_URDF = "src/envs/object_model/table/table.urdf"
+
+
+def resolve_scene_urdf_path(raw_path: str | Path) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path.resolve()
+    return (REPO_ROOT / path).resolve()
+
 
 def spawn_object(asset_paths: SceneAssetPaths, object_id: int, object_pose_world: dict):
     object_urdf = resolve_object_urdf(object_id)
@@ -31,6 +42,19 @@ def spawn_object(asset_paths: SceneAssetPaths, object_id: int, object_pose_world
         base_position=object_pose_world["position"],
         base_orientation=object_pose_world["quaternion"],
         use_fixed_base=False,
+    )
+
+
+def spawn_table(cfg: dict | None = None):
+    cfg = dict(cfg or {})
+    table_urdf = resolve_scene_urdf_path(cfg.get("urdf_path", DEFAULT_TABLE_URDF))
+    if not table_urdf.exists():
+        raise FileNotFoundError(f"Missing table URDF: {table_urdf}")
+    return px.Body(
+        urdf_path=str(table_urdf),
+        base_position=cfg.get("base_position", [0, 0, 0]),
+        base_orientation=cfg.get("base_orientation", [0, 0, 0, 1]),
+        use_fixed_base=bool(cfg.get("use_fixed_base", True)),
     )
 
 

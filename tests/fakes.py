@@ -15,7 +15,8 @@ from src.envs.termination import SingleStepTermination
 from src.models.rl.actor_critic import ActorCritic
 from src.models.rl.policy_network import LatentFirstLateFusionPolicyNetwork, PolicyNetwork, resolve_actor_critic_architecture_type
 from src.models.rl.value_network import LatentFirstLateFusionValueNetwork, ValueNetwork
-from src.perception.factory import build_perception_stack
+from src.perception.contact_semantics import ContactSemanticsExtractor
+from src.perception.sga_gsn_types import PerceptionResult
 from src.structures.action import GraspPose, NormalizedAction
 from src.structures.info import StepInfo
 from src.structures.observation import Observation
@@ -67,8 +68,8 @@ def make_perception_cfg() -> dict:
     return {
         "adapter_type": "dgcnn",
         "feature_extractor": {"freeze": True},
-        "backbone": {"type": "dgcnn", "latent_dim": 32, "hidden_dim": 64},
-        "predictor": {"type": "stability_head", "hidden_dim": 64},
+        "backbone": {"latent_dim": 32, "hidden_dim": 64},
+        "predictor": {"hidden_dim": 64},
         "contact_semantics": {"tactile_threshold": 0.2},
     }
 
@@ -187,6 +188,26 @@ class FakeScene:
         return None
 
 
+class FakeFeatureExtractor:
+    def __init__(self, latent_dim: int = 32):
+        self.latent_dim = int(latent_dim)
+
+    def encode(self, raw_obs: RawSensorObservation) -> PerceptionResult:
+        point_cloud = np.asarray(raw_obs.visual_data.get("point_cloud", np.zeros((1, 3))), dtype=np.float32)
+        tactile = np.asarray(raw_obs.tactile_data.get("contact_map", np.zeros(1)), dtype=np.float32)
+        point_mean = point_cloud.reshape(-1).mean() if point_cloud.size else 0.0
+        tactile_mean = tactile.reshape(-1).mean() if tactile.size else 0.0
+        base = float(point_mean + tactile_mean)
+        latent = np.full(self.latent_dim, fill_value=base, dtype=np.float32)
+        return PerceptionResult(latent_feature=latent, raw_stability_logit=base)
+
+
+class FakeStabilityPredictor:
+    def predict_logit(self, latent_feature) -> float:
+        latent = np.asarray(latent_feature, dtype=np.float32)
+        return float(latent.mean()) if latent.size else 0.0
+
+
 def build_test_env(
     seed: int = 7,
     *,
@@ -197,7 +218,10 @@ def build_test_env(
     env_cfg = deepcopy(make_env_cfg(seed) if env_cfg is None else env_cfg)
     perception_cfg = deepcopy(make_perception_cfg() if perception_cfg is None else perception_cfg)
     calibration_cfg = deepcopy(make_calibration_cfg() if calibration_cfg is None else calibration_cfg)
-    feature_extractor, contact_semantics_extractor, stability_predictor = build_perception_stack(perception_cfg)
+    latent_dim = int(perception_cfg.get("backbone", {}).get("latent_dim", 32))
+    feature_extractor = FakeFeatureExtractor(latent_dim=latent_dim)
+    contact_semantics_extractor = ContactSemanticsExtractor(perception_cfg.get("contact_semantics", {}))
+    stability_predictor = FakeStabilityPredictor()
     calibrator = OnlineLogitCalibrator(calibration_cfg)
     scene_factory = FakeScene
     env = GraspRefineEnv(

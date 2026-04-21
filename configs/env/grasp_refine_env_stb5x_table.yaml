@@ -1,9 +1,5 @@
 # v1 环境配置。
-# 当前主要由 scripts/_common.py -> build_env() 构造后，分别传给：
-# - GraspRefineEnv
-# - PyBulletScene
-# - ActionExecutor
-# - RewardManager
+# 与 grasp_refine_env_stb5x.yaml 保持一致，仅启用 scene-level PyBullet table static body。
 
 # 随机种子统一由 experiment.seed 注入。
 max_reset_attempts: 32
@@ -35,7 +31,7 @@ scene:
   visual_far: 2.0
   visualize_tacto_gui: false
   table:
-    enabled: false
+    enabled: true
     urdf_path: src/envs/object_model/table/table.urdf
     base_position: [0, 0, 0]
     base_orientation: [0, 0, 0, 1]
@@ -51,9 +47,9 @@ action:
   rotation_bound: [0.1, 0.1, 0.1]
 
 reward:
-  # 对三项论文 reward 的显式缩放系数。当前版本使用 2.5x stability reward。
+  # 对三项论文 reward 的显式缩放系数。当前 baseline 仅放大 stability reward。
   drop_weight: 1.0
-  stability_weight: 2.5
+  stability_weight: 5.0
   contact_weight: 1.0
 
   # 论文形式：R_stability = Delta p / (1 + kappa * tr(P))

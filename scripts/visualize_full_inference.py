@@ -100,6 +100,10 @@ def _write_rgb(path: Path, rgb: np.ndarray) -> None:
     cv2.imwrite(str(path), cv2.cvtColor(np.asarray(rgb, dtype=np.uint8), cv2.COLOR_RGB2BGR))
 
 
+def _write_inference_panel(path: Path, panel_rgb: np.ndarray) -> None:
+    _write_rgb(path, panel_rgb)
+
+
 def _label_panel(image: np.ndarray, label: str) -> np.ndarray:
     panel = np.asarray(image, dtype=np.uint8).copy()
     cv2.rectangle(panel, (0, 0), (panel.shape[1], 28), (20, 20, 20), thickness=-1)
@@ -165,6 +169,43 @@ def _resolve_policy_device(bundle: dict[str, Any], policy_device: str | None) ->
     return torch.device(rl_cfg.get("worker_policy_device", rl_cfg.get("device", "cpu")))
 
 
+LEGACY_LATEFUS_KEY_RENAMES = (
+    ("policy_net.trunk_layer.", "policy_net.trunk.0."),
+    ("policy_net.output_layer.", "policy_net.trunk.2."),
+    ("value_net.trunk_layer.", "value_net.trunk.0."),
+    ("value_net.output_layer.", "value_net.trunk.2."),
+)
+
+
+def _upgrade_legacy_latefus_actor_state(actor_state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    upgraded: dict[str, Any] = {}
+    changed = False
+    for key, value in actor_state.items():
+        new_key = key
+        for old_prefix, new_prefix in LEGACY_LATEFUS_KEY_RENAMES:
+            if key.startswith(old_prefix):
+                new_key = new_prefix + key[len(old_prefix) :]
+                changed = True
+                break
+        upgraded[new_key] = value
+    return upgraded, changed
+
+
+def _load_actor_state_compat(actor_critic, actor_state: dict[str, Any]) -> str:
+    try:
+        actor_critic.load_state_dict(actor_state)
+        return "direct"
+    except RuntimeError as original_error:
+        upgraded_state, changed = _upgrade_legacy_latefus_actor_state(actor_state)
+        if not changed:
+            raise original_error
+        try:
+            actor_critic.load_state_dict(upgraded_state)
+        except RuntimeError:
+            raise original_error
+        return "legacy_latefus_key_upgrade"
+
+
 def _load_checkpoint(actor_critic, calibrator, checkpoint_path: Path) -> dict[str, Any]:
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     actor_state = checkpoint.get("actor_critic")
@@ -173,7 +214,7 @@ def _load_checkpoint(actor_critic, calibrator, checkpoint_path: Path) -> dict[st
         raise KeyError(f"Checkpoint {checkpoint_path} does not contain 'actor_critic'.")
     if calibrator_state is None:
         raise KeyError(f"Checkpoint {checkpoint_path} does not contain 'calibrator'.")
-    actor_critic.load_state_dict(actor_state)
+    checkpoint["_actor_state_load_mode"] = _load_actor_state_compat(actor_critic, actor_state)
     load_state = getattr(calibrator, "load_state", None)
     if not callable(load_state):
         raise TypeError("Calibrator does not support load_state().")
@@ -181,11 +222,30 @@ def _load_checkpoint(actor_critic, calibrator, checkpoint_path: Path) -> dict[st
     return checkpoint
 
 
+def _resolve_table_override(enable_table: bool, disable_table: bool) -> bool | None:
+    if enable_table and disable_table:
+        raise ValueError("--enable-table and --disable-table cannot be used together.")
+    if enable_table:
+        return True
+    if disable_table:
+        return False
+    return None
+
+
+def _apply_table_override(env_cfg: dict[str, Any], table_override: bool | None) -> dict[str, Any]:
+    scene_cfg = env_cfg.setdefault("scene", {})
+    table_cfg = scene_cfg.setdefault("table", {})
+    if table_override is not None:
+        table_cfg["enabled"] = bool(table_override)
+    return table_cfg
+
+
 def _build_env_for_visualization(
     experiment_path: str | Path,
     *,
     object_ids: list[int],
     sample_seed: int,
+    table_override: bool | None = None,
 ):
     from _common import build_env, load_experiment_bundle
 
@@ -196,6 +256,7 @@ def _build_env_for_visualization(
     env_cfg["scene"]["use_gui"] = False
     env_cfg["scene"]["visualize_tacto_gui"] = False
     env_cfg["scene"]["visualize_debug_windows"] = False
+    table_cfg = _apply_table_override(env_cfg, table_override)
     dataset_cfg = env_cfg.setdefault("dataset", {})
     dataset_cfg["include_object_ids"] = list(object_ids)
     dataset_cfg["fixed_sample_sequence"] = True
@@ -203,6 +264,7 @@ def _build_env_for_visualization(
     dataset_cfg["worker_id"] = 0
     dataset_cfg["num_workers"] = 1
     env, calibrator = build_env(env_cfg, bundle["perception"], bundle["calibration"])
+    experiment_cfg["_visualization_table_config"] = deepcopy(table_cfg)
     return experiment_cfg, bundle, env, calibrator
 
 
@@ -337,6 +399,7 @@ def _round_payload(
     reward: float,
     done: bool,
     info,
+    scene_debug: dict[str, Any] | None,
     elapsed_s: float,
 ) -> dict[str, Any]:
     source_cfg = dict(sample_cfg.get("source", {}))
@@ -397,6 +460,7 @@ def _round_payload(
             "object_ids": list(selected_object_ids),
             "sample_seed": int(sample_seed),
         },
+        "scene": _json_ready(scene_debug or {}),
         "outputs": {
             "before": _export_stage(round_dir / "before", raw_before),
             "after": _export_stage(round_dir / "after", raw_after),
@@ -433,9 +497,11 @@ def run_one_round(
     with _temporary_after_settle_steps(env, settle_policy) as after_settle_steps:
         obs_after, reward, done, info = env.step(normalized_action)
     raw_after = env.raw_obs_after
+    get_debug_snapshot = getattr(env, "get_debug_snapshot", None)
+    scene_debug = get_debug_snapshot() if callable(get_debug_snapshot) else {}
 
     panel = build_inference_panel(raw_before, raw_after)
-    cv2.imwrite(str(round_dir / "inference_panel.png"), panel)
+    _write_inference_panel(round_dir / "inference_panel.png", panel)
 
     payload = _round_payload(
         round_index=round_index,
@@ -458,6 +524,7 @@ def run_one_round(
         reward=float(reward),
         done=bool(done),
         info=info,
+        scene_debug=scene_debug,
         elapsed_s=time.perf_counter() - round_start,
     )
     with (round_dir / "info.json").open("w", encoding="utf-8") as handle:
@@ -476,6 +543,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-samples", type=int, default=0, help="0 means loop until Ctrl+C.")
     parser.add_argument("--settle-policy", default="before_match_after", choices=SETTLE_POLICY_CHOICES)
     parser.add_argument("--policy-device", default=None, help="Defaults to rl.worker_policy_device/device from config.")
+    table_group = parser.add_mutually_exclusive_group()
+    table_group.add_argument(
+        "--enable-table",
+        action="store_true",
+        help="Temporarily enable scene.table for this visualization run without editing the env yaml.",
+    )
+    table_group.add_argument(
+        "--disable-table",
+        action="store_true",
+        help="Temporarily disable scene.table for this visualization run without editing the env yaml.",
+    )
     return parser
 
 
@@ -487,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_path = validate_checkpoint_path(args.checkpoint)
     output_dir = resolve_repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    table_override = _resolve_table_override(bool(args.enable_table), bool(args.disable_table))
 
     experiment_cfg, _ = load_experiment_bundle(experiment_path)
     selected_object_ids = resolve_object_ids(
@@ -498,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
         experiment_path,
         object_ids=selected_object_ids,
         sample_seed=int(args.sample_seed),
+        table_override=table_override,
     )
     actor_critic = build_actor_critic(bundle["perception"], bundle["actor_critic"])
     checkpoint = _load_checkpoint(actor_critic, calibrator, checkpoint_path)
@@ -517,6 +597,8 @@ def main(argv: list[str] | None = None) -> int:
                 "object_ids": selected_object_ids,
                 "sample_seed": int(args.sample_seed),
                 "settle_policy": args.settle_policy,
+                "table_override": table_override,
+                "table_config": experiment_cfg.get("_visualization_table_config"),
                 "policy_device": str(policy_device),
                 "output_dir": str(output_dir),
             },

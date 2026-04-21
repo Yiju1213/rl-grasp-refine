@@ -13,8 +13,10 @@ from src.envs.scene_assets import (
     destroy_tacto_sensor,
     remove_object_body,
     remove_object_from_tacto_sensor,
+    resolve_scene_urdf_path,
     spawn_hand,
     spawn_object,
+    spawn_table,
 )
 from src.envs.scene_contact import check_contact, check_target_force, has_any_contact
 from src.envs.scene_observation import capture_scene_observation, make_invalid_after_observation
@@ -45,6 +47,7 @@ class PyBulletScene:
         self.before_raw_obs: RawSensorObservation | None = None
         self.hand = None
         self.object_body = None
+        self.table_body = None
         self.tacto_sensor = None
         self.object_constraint_id: int | None = None
         self._after_observation_ready = False
@@ -291,6 +294,7 @@ class PyBulletScene:
         self.before_raw_obs = None
         self.hand = None
         self.object_body = None
+        self.table_body = None
         self.tacto_sensor = None
         self.object_constraint_id = None
         self._after_observation_ready = False
@@ -305,11 +309,17 @@ class PyBulletScene:
         self._last_tacto_action = None
 
     def get_debug_snapshot(self) -> dict[str, Any]:
+        table_cfg = self._table_cfg()
         return {
             "source_object_id": None if self.sample_cfg is None else int(self.sample_cfg["source"]["object_id"]),
             "source_global_id": None if self.sample_cfg is None else int(self.sample_cfg["source"]["global_id"]),
             "hand_body_id": None if self.hand is None else int(self.hand.id),
             "current_object_body_id": None if self.object_body is None else int(self.object_body.id),
+            "table": {
+                "enabled": self._table_enabled(),
+                "body_id": None if self.table_body is None else int(self.table_body.id),
+                "urdf_path": str(resolve_scene_urdf_path(table_cfg.get("urdf_path", "src/envs/object_model/table/table.urdf"))),
+            },
             "last_object_action": self._last_object_action,
             "last_tacto_action": self._last_tacto_action,
             "asset_paths": {
@@ -336,6 +346,12 @@ class PyBulletScene:
     def _runtime_cfg(self) -> dict[str, Any]:
         return (self.sample_cfg or {}).get("runtime", {})
 
+    def _table_cfg(self) -> dict[str, Any]:
+        return dict(self.cfg.get("table", {}) or {})
+
+    def _table_enabled(self) -> bool:
+        return bool(self._table_cfg().get("enabled", False))
+
     @staticmethod
     def _resolve_post_refine_settle_steps(runtime_cfg: dict[str, Any], stage: str) -> int:
         if stage != "refine":
@@ -353,6 +369,8 @@ class PyBulletScene:
 
     def _ensure_static_scene_assets(self) -> str:
         tacto_action = "reuse"
+        if self._table_enabled() and self.table_body is None:
+            self.table_body = spawn_table(self._table_cfg())
         if self.hand is None:
             self.hand = spawn_hand(self.asset_paths, self._staging_hand_pose_world())
         if self.tacto_sensor is None:

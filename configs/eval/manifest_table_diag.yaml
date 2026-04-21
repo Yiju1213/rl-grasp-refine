@@ -1,0 +1,37 @@
+output_dir: /rl-grasp-refine/outputs/unseen_test_table_diag
+
+experiments:
+  # - label: no-action-cnnmca
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_cnnmca
+  #   policy_mode: zero_action
+
+  # - label: rand-action-cnnmca
+  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_cnnmca
+  #   policy_mode: random_uniform
+  #   action_seed: 0
+
+  - label: no-action-cnnmca-table
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_cnnmca_table
+    policy_mode: zero_action
+
+  - label: rand-action-cnnmca-table
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_cnnmca_table
+    policy_mode: random_uniform
+    action_seed: 0
+
+protocol:
+  test_object_ids: [75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87]
+  test_seeds: [1001, 1002, 1003]
+  episodes_per_object: 100
+  bootstrap_iterations: 10000
+  confidence_level: 0.95
+
+collector:
+  num_workers: 6
+  batch_episodes: 100
+  worker_policy_device: cuda:0
+  scene_rebuild_every_n_iterations: 0
+  worker_recycle_every_n_iterations: 0
+  worker_recycle_slots_per_event: 1
+  worker_recycle_enable_standby_prefetch: true
+  worker_recycle_prefetch_count: 1

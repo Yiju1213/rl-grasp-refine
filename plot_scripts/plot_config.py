@@ -37,17 +37,27 @@ ABLATION_LABELS = (
     "full-latefus-128-epi",
 )
 
+BACKBONE_AC_LABELS = (
+    "rand-action",
+    "full-latefus-cnnmca",
+    "full-latefus-ac-256-128",
+    "full-latefus-128-epi",
+)
+
 ORDERED_LABELS = (
     *MAIN_LABELS,
     "wo-onl-cal_latefus_128-epi",
     "wo-stb-rwd_latefus_128-epi",
     "wo-tac-rwd_latefus_128-epi",
     "wo-tac-sem-n-rwd_latefus_128-epi",
+    "full-latefus-cnnmca",
+    "full-latefus-ac-256-128",
 )
 
 GROUPS = {
     "main": MAIN_LABELS,
     "ablation": ABLATION_LABELS,
+    "backbone_ac": BACKBONE_AC_LABELS,
 }
 
 DISPLAY_NAMES = {
@@ -58,6 +68,8 @@ DISPLAY_NAMES = {
     "wo-stb-rwd_latefus_128-epi": "w/o Stb. Reward",
     "wo-tac-rwd_latefus_128-epi": "w/o Tac Reward",
     "wo-tac-sem-n-rwd_latefus_128-epi": "w/o Tac Sem.+Reward",
+    "full-latefus-cnnmca": "CNNMCA",
+    "full-latefus-ac-256-128": "Full+AC256",
     "full-latefus-128-epi": "Full",
 }
 
@@ -79,6 +91,8 @@ COLORS = {
     "wo-stb-rwd_latefus_128-epi": "#D55E00",
     "wo-tac-rwd_latefus_128-epi": "#009E73",
     "wo-tac-sem-n-rwd_latefus_128-epi": "#56B4E9",
+    "full-latefus-cnnmca": "#0072B2",
+    "full-latefus-ac-256-128": "#F0E442",
     "full-latefus-128-epi": "#310D0D",
 }
 
@@ -90,6 +104,8 @@ MARKERS = {
     "wo-stb-rwd_latefus_128-epi": "D",
     "wo-tac-rwd_latefus_128-epi": "^",
     "wo-tac-sem-n-rwd_latefus_128-epi": "v",
+    "full-latefus-cnnmca": "h",
+    "full-latefus-ac-256-128": "d",
     "full-latefus-128-epi": "P",
 }
 

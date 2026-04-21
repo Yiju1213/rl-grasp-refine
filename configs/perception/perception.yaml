@@ -4,7 +4,7 @@
 # 用哪个 adapter 族来决定输入适配方式。
 # 当前：
 # - "sga_gsn" -> SGAGSNAdapter + shared AdaPoinTr/SGSNet runtime
-# - "dgcnn"   -> DGCNNAdapter + DGCNNEncoder
+# - "dgcnn"   -> DGCNNAdapter + shared AdaPoinTr VTG-DGCNN runtime
 # 实际 backbone 选择优先看这个字段。
 adapter_type: sga_gsn
 
@@ -17,11 +17,11 @@ backbone:
   # adapter_type=sga_gsn 时，真实 feature dim 由下方 runtime config 决定。
   latent_dim: 576
 
-  # 仅 dgcnn fallback 路径使用。
+  # 历史占位字段；当前真实 runtime 不使用这里的 hidden_dim。
   hidden_dim: 64
 
 predictor:
-  # 仅 dgcnn fallback 路径使用。
+  # 历史占位字段；真实 sga_gsn/dgcnn/cnnmca runtime 直接输出 raw logit。
   hidden_dim: 64
 
 contact_semantics:

@@ -29,38 +29,38 @@ experiments:
   #   #   random_uniform  : Uniform(-1, 1)^6 normalized action, actor output ignored
   #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_drop-only_96-epi_paper-spec
 
-  # - label: full-latefus-128-epi
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
-  #   policy_mode: learned_best
+  - label: full-latefus-128-epi
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
+    policy_mode: learned_best
 
-  # - label: no-action
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
-  #   policy_mode: zero_action
+  - label: no-action
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
+    policy_mode: zero_action
 
-  # - label: rand-action
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
-  #   policy_mode: random_uniform
-  #   action_seed: 0
+  - label: rand-action
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus
+    policy_mode: random_uniform
+    action_seed: 0
 
-  # - label: drop-only-latent-only-128-epi
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/drop-only_128-epi_latent-only
-  #   policy_mode: learned_best
+  - label: drop-only-latent-only-128-epi
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/drop-only_128-epi_latent-only
+    policy_mode: learned_best
 
-  # - label: wo-onl-cal_latefus_128-epi
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-onl-cal
-  #   policy_mode: learned_best
+  - label: wo-onl-cal_latefus_128-epi
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-onl-cal
+    policy_mode: learned_best
 
   - label: wo-stb-rwd_latefus_128-epi
     experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-stb-rwd
     policy_mode: learned_best
 
-  # - label: wo-tac-rwd_latefus_128-epi
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-tac-rwd
-  #   policy_mode: learned_best
+  - label: wo-tac-rwd_latefus_128-epi
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-tac-rwd
+    policy_mode: learned_best
 
-  # - label: wo-tac-sem-n-rwd_latefus_128-epi
-  #   experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-tac-sem-n-rwd
-  #   policy_mode: learned_best
+  - label: wo-tac-sem-n-rwd_latefus_128-epi
+    experiment_dir: /rl-grasp-refine/outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_wo-tac-sem-n-rwd
+    policy_mode: learned_best
 
 protocol:
   # Fixed unseen object pool shared by all experiments.
