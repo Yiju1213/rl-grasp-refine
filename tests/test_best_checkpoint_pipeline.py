@@ -11,6 +11,10 @@ import yaml
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.evaluation.best_checkpoint_pipeline import (
+    _EPISODE_RECORD_FIELDS as PIPELINE_EPISODE_RECORD_FIELDS,
+    _PER_OBJECT_FIELDS as PIPELINE_PER_OBJECT_FIELDS,
+    _PER_RUN_FIELDS as PIPELINE_PER_RUN_FIELDS,
+    _SUMMARY_FIELDS as PIPELINE_SUMMARY_FIELDS,
     ObjectEvaluationBudget,
     aggregate_object_episode_records,
     aggregate_run_object_rows,
@@ -92,6 +96,10 @@ _SUMMARY_HEADER = [
     "prob_delta_mean_ci95_low",
     "prob_delta_mean_ci95_high",
 ]
+_PER_OBJECT_HEADER = list(PIPELINE_PER_OBJECT_FIELDS)
+_PER_RUN_HEADER = list(PIPELINE_PER_RUN_FIELDS)
+_SUMMARY_HEADER = list(PIPELINE_SUMMARY_FIELDS)
+_EPISODE_RECORD_HEADER = list(PIPELINE_EPISODE_RECORD_FIELDS)
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -463,7 +471,13 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                 experiment_output_dir = experiment_output_paths["directory"]
                 self.assertEqual(
                     {path.name for path in experiment_output_dir.iterdir()},
-                    {"metadata.json", "per_object_summary.csv", "per_run_summary.csv", "summary.csv"},
+                    {
+                        "episode_records.csv",
+                        "metadata.json",
+                        "per_object_summary.csv",
+                        "per_run_summary.csv",
+                        "summary.csv",
+                    },
                 )
                 self.assertEqual(
                     (experiment_output_dir / "per_object_summary.csv").read_text(encoding="utf-8").splitlines()[0].split(","),
@@ -477,24 +491,37 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     (experiment_output_dir / "summary.csv").read_text(encoding="utf-8").splitlines()[0].split(","),
                     _SUMMARY_HEADER,
                 )
+                self.assertEqual(
+                    (experiment_output_dir / "episode_records.csv").read_text(encoding="utf-8").splitlines()[0].split(","),
+                    _EPISODE_RECORD_HEADER,
+                )
 
                 per_object_rows = _read_csv_rows(experiment_output_paths["per_object_summary"])
                 per_run_rows = _read_csv_rows(experiment_output_paths["per_run_summary"])
                 summary_rows = _read_csv_rows(experiment_output_paths["summary"])
+                episode_rows = _read_csv_rows(experiment_output_paths["episode_records"])
                 metadata = json.loads(experiment_output_paths["metadata"].read_text(encoding="utf-8"))
 
                 self.assertEqual(len(per_object_rows), 6)
                 self.assertEqual(len(per_run_rows), 3)
                 self.assertEqual(len(summary_rows), 1)
+                self.assertEqual(len(episode_rows), 18)
                 self.assertEqual(metadata["policy_mode"], "learned_best")
                 self.assertEqual(metadata["action_mode"], "deterministic_mean")
                 self.assertEqual(metadata["action_seed"], 0)
                 self.assertEqual(metadata["protocol_notes"]["policy_mode"], "learned_best")
                 self.assertEqual(metadata["protocol_notes"]["action_mode"], "deterministic_mean")
-                self.assertFalse(metadata["protocol_notes"]["episode_records_persisted"])
+                self.assertTrue(metadata["protocol_notes"]["episode_records_persisted"])
+                self.assertEqual(metadata["protocol_notes"]["episode_records_storage"], "episode_records.csv")
                 self.assertEqual(int(metadata["collector"]["num_workers"]), 1)
                 self.assertEqual(metadata["experiment_name"], experiment_name)
                 self.assertGreaterEqual(float(metadata["evaluation_wall_minutes"]), 0.0)
+                self.assertIn("action_translation_norm_mean", per_object_rows[0])
+                self.assertIn("calibrator_prob_after_auc", per_run_rows[0])
+                self.assertIn("action_translation_norm_mean_mean", summary_rows[0])
+                self.assertIn("source_global_id", episode_rows[0])
+                self.assertIn("latent_before_norm", episode_rows[0])
+                self.assertIn("policy_latent_hidden_before_norm", episode_rows[0])
 
                 grouped_object_rows: dict[int, list[dict[str, str]]] = {}
                 for row in per_object_rows:
@@ -615,6 +642,10 @@ class TestBestCheckpointPipeline(unittest.TestCase):
                     paths["per_object_summary"].read_text(encoding="utf-8").splitlines()[0].split(","),
                     _PER_OBJECT_HEADER,
                 )
+                episode_rows = _read_csv_rows(paths["episode_records"])
+                self.assertTrue(episode_rows)
+                self.assertIn("action_0", episode_rows[0])
+                self.assertIn("translation_norm", episode_rows[0])
 
 
 if __name__ == "__main__":

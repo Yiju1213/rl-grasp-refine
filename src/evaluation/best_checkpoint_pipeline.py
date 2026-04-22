@@ -12,6 +12,15 @@ import numpy as np
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
 from src.envs.dataset_sample_provider import DatasetSampleProvider
+from src.metrics.rollout_diagnostics import (
+    ACTION_DIM,
+    ACTION_SATURATION_THRESHOLD,
+    EPISODE_RECORD_EXTRA_FIELDS,
+    FORMAL_DIAGNOSTIC_FIELDS,
+    formal_diagnostic_stats,
+    latent_summary,
+    policy_latent_hidden_stats,
+)
 from src.rl.subproc_async_rollout_collector import (
     POLICY_MODE_LEARNED_BEST,
     POLICY_MODE_RANDOM_UNIFORM,
@@ -49,6 +58,7 @@ _PER_OBJECT_FIELDS = (
     "negative_count",
     "positive_drop_count",
     "negative_hold_count",
+    *FORMAL_DIAGNOSTIC_FIELDS,
 )
 
 _PER_RUN_FIELDS = (
@@ -64,6 +74,7 @@ _PER_RUN_FIELDS = (
     "prob_delta_mean",
     "num_objects",
     "total_episodes",
+    *FORMAL_DIAGNOSTIC_FIELDS,
 )
 
 _SUMMARY_FIELDS = (
@@ -97,6 +108,23 @@ _SUMMARY_FIELDS = (
     "prob_delta_mean_std",
     "prob_delta_mean_ci95_low",
     "prob_delta_mean_ci95_high",
+    *(
+        item
+        for field in FORMAL_DIAGNOSTIC_FIELDS
+        for item in (f"{field}_mean", f"{field}_std")
+    ),
+)
+
+_EPISODE_RECORD_FIELDS = (
+    "experiment_name",
+    "test_seed",
+    "object_id",
+    "drop_success",
+    "legacy_drop_success_before",
+    "t_cover_delta",
+    "t_edge_delta",
+    "prob_delta",
+    *EPISODE_RECORD_EXTRA_FIELDS,
 )
 
 
@@ -420,6 +448,7 @@ def _object_episode_record_from_transition(
     test_seed: int,
     object_id: int,
     transition: dict[str, Any],
+    actor_critic: Any | None = None,
 ) -> dict[str, Any]:
     info = transition["info"]
     source_object_id = info.extra.get("source_object_id")
@@ -436,17 +465,68 @@ def _object_episode_record_from_transition(
     contact_after = np.asarray(next_obs.contact_semantic, dtype=np.float64).reshape(-1)
     if contact_before.size < 2 or contact_after.size < 2:
         raise RuntimeError(f"Object {object_id} produced an invalid contact_semantic payload.")
+    action = np.asarray(transition.get("action", np.zeros(ACTION_DIM, dtype=np.float32)), dtype=np.float64).reshape(-1)
+    if action.size < ACTION_DIM:
+        raise RuntimeError(f"Object {object_id} produced an invalid action payload.")
+    action = action[:ACTION_DIM]
+    drop_success = int(info.drop_success)
+    legacy_before_float = float(legacy_before)
+    success_delta = float(drop_success - legacy_before_float)
+    trial_metadata = info.extra.get("trial_metadata", {})
+    if not isinstance(trial_metadata, dict):
+        trial_metadata = {}
+    raw_logit_before = float(
+        info.extra.get("raw_logit_before", transition.get("raw_logit_before", obs.raw_stability_logit))
+    )
+    raw_logit_after = float(
+        info.extra.get("raw_logit_after", transition.get("raw_logit_after", next_obs.raw_stability_logit))
+    )
+    prob_before = float(info.calibrated_stability_before)
+    prob_after = float(info.calibrated_stability_after)
 
-    return {
+    record = {
         "experiment_name": str(experiment_name),
         "test_seed": int(test_seed),
         "object_id": int(object_id),
-        "drop_success": int(info.drop_success),
-        "legacy_drop_success_before": float(legacy_before),
+        "drop_success": int(drop_success),
+        "legacy_drop_success_before": float(legacy_before_float),
         "t_cover_delta": float(contact_after[0] - contact_before[0]),
         "t_edge_delta": float(contact_after[1] - contact_before[1]),
-        "prob_delta": float(info.calibrated_stability_after - info.calibrated_stability_before),
+        "prob_delta": float(prob_after - prob_before),
+        "source_global_id": info.extra.get("source_global_id"),
+        "source_object_id": int(source_object_id),
+        "translation_norm": float(np.linalg.norm(action[:3])),
+        "rotation_norm": float(np.linalg.norm(action[3:6])),
+        "saturation_rate": float(np.mean(np.abs(action) > ACTION_SATURATION_THRESHOLD)),
+        "success_delta": float(success_delta),
+        "positive_drop_event": int(legacy_before_float >= 0.5 and drop_success == 0),
+        "negative_recovery_event": int(legacy_before_float < 0.5 and drop_success == 1),
+        "raw_logit_before": float(raw_logit_before),
+        "raw_logit_after": float(raw_logit_after),
+        "prob_before": float(prob_before),
+        "prob_after": float(prob_after),
+        "t_cover_before": float(contact_before[0]),
+        "t_cover_after": float(contact_after[0]),
+        "t_edge_before": float(contact_before[1]),
+        "t_edge_after": float(contact_after[1]),
+        "trial_status": str(trial_metadata.get("trial_status", "unknown")),
+        "failure_reason": trial_metadata.get("failure_reason"),
     }
+    for idx in range(ACTION_DIM):
+        record[f"action_{idx}"] = float(action[idx])
+    record.update(latent_summary(obs.latent_feature, prefix="latent_before"))
+    record.update(latent_summary(next_obs.latent_feature, prefix="latent_after"))
+    if actor_critic is None:
+        record.update(
+            {
+                "policy_latent_hidden_before_norm": None,
+                "policy_latent_hidden_before_mean": None,
+                "policy_latent_hidden_before_std": None,
+            }
+        )
+    else:
+        record.update(policy_latent_hidden_stats(actor_critic, obs, prefix="policy_latent_hidden_before"))
+    return record
 
 
 def aggregate_object_episode_records(
@@ -472,7 +552,7 @@ def aggregate_object_episode_records(
     positive_drop_count = int(np.sum(drop_success[positive_mask] < 0.5)) if positive_count else 0
     negative_hold_count = int(np.sum(drop_success[negative_mask] >= 0.5)) if negative_count else 0
 
-    return {
+    row = {
         "experiment_name": str(experiment_name),
         "test_seed": int(test_seed),
         "object_id": int(object_id),
@@ -492,6 +572,8 @@ def aggregate_object_episode_records(
         "positive_drop_count": int(positive_drop_count),
         "negative_hold_count": int(negative_hold_count),
     }
+    row.update(formal_diagnostic_stats(episode_records))
+    return row
 
 
 def aggregate_run_object_rows(
@@ -499,6 +581,7 @@ def aggregate_run_object_rows(
     experiment_name: str,
     test_seed: int,
     object_rows: list[dict[str, Any]],
+    episode_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not object_rows:
         raise ValueError(f"Cannot aggregate empty object rows for run seed {test_seed}.")
@@ -515,7 +598,7 @@ def aggregate_run_object_rows(
             f"Run {experiment_name}[seed={test_seed}] has no defined negative_hold_rate across objects."
         )
 
-    return {
+    row = {
         "experiment_name": str(experiment_name),
         "test_seed": int(test_seed),
         "macro_success_lift": float(np.mean(np.asarray(success_lift_values, dtype=np.float64))),
@@ -529,6 +612,8 @@ def aggregate_run_object_rows(
         "num_objects": int(len(object_rows)),
         "total_episodes": int(sum(int(row["num_episodes"]) for row in object_rows)),
     }
+    row.update(formal_diagnostic_stats(list(episode_records or [])))
+    return row
 
 
 def _bootstrap_metric_ci(
@@ -599,6 +684,15 @@ def summarize_experiment_rows(
     summary["across_object_lift_std_std"] = _std(across_object_std_values)
     summary["across_object_lift_iqr_mean"] = float(np.mean(np.asarray(across_object_iqr_values, dtype=np.float64)))
     summary["across_object_lift_iqr_std"] = _std(across_object_iqr_values)
+    for field in FORMAL_DIAGNOSTIC_FIELDS:
+        values = [_float_or_none(row.get(field)) for row in run_rows]
+        finite_values = [float(value) for value in values if value is not None]
+        summary[f"{field}_mean"] = (
+            None
+            if not finite_values
+            else float(np.mean(np.asarray(finite_values, dtype=np.float64)))
+        )
+        summary[f"{field}_std"] = None if not finite_values else _std(finite_values)
     return summary
 
 
@@ -701,13 +795,14 @@ def run_best_checkpoint_evaluation(
 
             experiment_object_rows: list[dict[str, Any]] = []
             experiment_run_rows: list[dict[str, Any]] = []
+            experiment_episode_records: list[dict[str, Any]] = []
             action_mode = _action_mode_for_policy(experiment.policy_mode)
             protocol_notes = {
                 "policy_mode": experiment.policy_mode,
                 "action_mode": action_mode,
                 "action_seed": int(experiment.action_seed),
-                "episode_records_persisted": False,
-                "episode_records_storage": "memory_only",
+                "episode_records_persisted": True,
+                "episode_records_storage": "episode_records.csv",
                 "per_object_budget_mode": "equal_budget_with_truncation",
                 "risk_metric_na_policy": "object_level_na_run_macro_defined_domain_only",
                 "ci_method": "object_bootstrap",
@@ -737,6 +832,7 @@ def run_best_checkpoint_evaluation(
             dataset_cfg = deepcopy(env_cfg.get("dataset", {}))
             for test_seed in manifest.protocol.test_seeds:
                 run_object_rows: list[dict[str, Any]] = []
+                run_episode_records: list[dict[str, Any]] = []
                 for object_id in manifest.protocol.test_object_ids:
                     budget = object_budget_resolver(
                         dataset_cfg=dataset_cfg,
@@ -792,6 +888,7 @@ def run_best_checkpoint_evaluation(
                                             test_seed=int(test_seed),
                                             object_id=int(object_id),
                                             transition=transition,
+                                            actor_critic=actor_critic,
                                         )
                                     )
                                 if len(object_records) >= target_episodes:
@@ -833,6 +930,7 @@ def run_best_checkpoint_evaluation(
                                         test_seed=int(test_seed),
                                         object_id=int(object_id),
                                         transition=transition,
+                                        actor_critic=actor_critic,
                                     )
                                 )
                             overflow_transitions.extend(list(payload.get("overflow_transitions", [])))
@@ -852,6 +950,8 @@ def run_best_checkpoint_evaluation(
                     )
                     run_object_rows.append(object_row)
                     experiment_object_rows.append(object_row)
+                    run_episode_records.extend(object_records)
+                    experiment_episode_records.extend(object_records)
                     experiment_metadata["resolved_objects"].append(
                         {
                             "test_seed": int(test_seed),
@@ -868,6 +968,7 @@ def run_best_checkpoint_evaluation(
                     experiment_name=experiment.label,
                     test_seed=int(test_seed),
                     object_rows=run_object_rows,
+                    episode_records=run_episode_records,
                 )
                 experiment_run_rows.append(run_row)
 
@@ -886,11 +987,13 @@ def run_best_checkpoint_evaluation(
             per_object_path = experiment_output_dir / "per_object_summary.csv"
             per_run_path = experiment_output_dir / "per_run_summary.csv"
             summary_path = experiment_output_dir / "summary.csv"
+            episode_records_path = experiment_output_dir / "episode_records.csv"
             metadata_path = experiment_output_dir / "metadata.json"
 
             _write_csv(per_object_path, fieldnames=_PER_OBJECT_FIELDS, rows=experiment_object_rows)
             _write_csv(per_run_path, fieldnames=_PER_RUN_FIELDS, rows=experiment_run_rows)
             _write_csv(summary_path, fieldnames=_SUMMARY_FIELDS, rows=[summary_row])
+            _write_csv(episode_records_path, fieldnames=_EPISODE_RECORD_FIELDS, rows=experiment_episode_records)
             with metadata_path.open("w", encoding="utf-8") as handle:
                 json.dump(_json_ready(experiment_metadata), handle, indent=2, sort_keys=True, ensure_ascii=False)
                 handle.write("\n")
@@ -900,6 +1003,7 @@ def run_best_checkpoint_evaluation(
                 "per_object_summary": per_object_path,
                 "per_run_summary": per_run_path,
                 "summary": summary_path,
+                "episode_records": episode_records_path,
                 "metadata": metadata_path,
             }
         except Exception as exc:

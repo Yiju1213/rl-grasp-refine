@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.envs.geometry_context import camera_geometry_context
 from src.structures.observation import Observation, RawSensorObservation
 
 # TODO 换个跟perception部分更贴近的名称，同时可以尝试移过去
@@ -19,6 +20,7 @@ class ObservationBuilder:
     def build(self, raw_obs: RawSensorObservation, grasp_pose) -> Observation:
         perception_result = self.feature_extractor.encode(raw_obs)
         contact_semantic = self.contact_semantics_extractor.extract(raw_obs)
+        action_axes_in_camera, hand_pose_in_camera = camera_geometry_context(raw_obs, grasp_pose)
         raw_stability_logit = perception_result.raw_stability_logit
         if raw_stability_logit is None:
             raw_stability_logit = self.stability_predictor.predict_logit(perception_result.latent_feature)
@@ -27,4 +29,6 @@ class ObservationBuilder:
             contact_semantic=contact_semantic,
             grasp_pose=grasp_pose,
             raw_stability_logit=raw_stability_logit,
+            action_axes_in_camera=action_axes_in_camera,
+            hand_pose_in_camera=hand_pose_in_camera,
         )

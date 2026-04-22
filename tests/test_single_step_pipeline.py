@@ -86,6 +86,12 @@ class TestSingleStepPipeline(unittest.TestCase):
             "reward/total_mean",
             "contact/t_cover_after_mean",
             "calibrator/prob_after_mean",
+            "calibrator/before_brier_vs_legacy",
+            "calibrator/prob_after_auc",
+            "action/translation_norm_mean",
+            "action/rotation_norm_std",
+            "action/dim_0_mean",
+            "action/dim_0_saturation_rate",
             "ppo/policy_loss",
             "ppo/clip_fraction",
             "ppo/grad_norm",
@@ -188,6 +194,10 @@ class TestSingleStepPipeline(unittest.TestCase):
         self.assertIn("validation/reward/total_mean", validation_stats)
         self.assertIn("validation/contact/t_cover_after_mean", validation_stats)
         self.assertIn("validation/calibrator/prob_after_mean", validation_stats)
+        self.assertIn("validation/action/translation_norm_mean", validation_stats)
+        self.assertIn("validation/calibrator/before_brier_vs_legacy", validation_stats)
+        self.assertIn("validation/corr/translation_norm_prob_delta", validation_stats)
+        self.assertIn("validation/action_bin/trans_bin_0_count", validation_stats)
         for key, value_before in actor_state_before.items():
             self.assertTrue(torch.equal(value_before, actor_critic.state_dict()[key]))
         calibrator_state_after = calibrator.get_state()

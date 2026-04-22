@@ -126,6 +126,11 @@ class TestLogger(unittest.TestCase):
                 "timing/validation_wall_s": 1.0,
                 "system/process_rss_mb": 123.0,
                 "action/saturation_rate": 0.6,
+                "action/dim_0_saturation_rate": 0.1,
+                "corr/translation_norm_prob_delta": 0.2,
+                "action_bin/trans_bin_0_count": 3.0,
+                "calibrator/prob_after_auc": 0.8,
+                "calibrator/before_brier_vs_legacy": 0.2,
                 "collection/worker_recycle_performed": 1.0,
                 "calibrator/raw_logit_before_mean": 0.7,
             }
@@ -138,9 +143,14 @@ class TestLogger(unittest.TestCase):
             self.assertIn("outcome/hold_rate_after_given_dataset_negative", filtered)
             self.assertIn("reward/total_mean", filtered)
             self.assertIn("timing/validation_wall_s", filtered)
+            self.assertIn("action/saturation_rate", filtered)
+            self.assertIn("action/dim_0_saturation_rate", filtered)
+            self.assertIn("corr/translation_norm_prob_delta", filtered)
+            self.assertIn("action_bin/trans_bin_0_count", filtered)
+            self.assertIn("calibrator/prob_after_auc", filtered)
+            self.assertIn("calibrator/before_brier_vs_legacy", filtered)
             self.assertNotIn("outcome/dataset_positive_count", filtered)
             self.assertNotIn("system/process_rss_mb", filtered)
-            self.assertNotIn("action/saturation_rate", filtered)
             self.assertNotIn("collection/worker_recycle_performed", filtered)
             self.assertNotIn("calibrator/raw_logit_before_mean", filtered)
 

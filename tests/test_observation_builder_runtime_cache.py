@@ -49,7 +49,7 @@ class TestObservationBuilderRuntimeCache(unittest.TestCase):
         )
 
         raw_obs = RawSensorObservation(
-            visual_data={"point_cloud": np.zeros((8, 3), dtype=np.float32)},
+            visual_data={"point_cloud": np.zeros((8, 3), dtype=np.float32), "view_matrix": np.eye(4, dtype=np.float32)},
             tactile_data={"contact_map": np.zeros((2, 4, 4), dtype=np.float32)},
             grasp_metadata={"grasp_pose": "original_pose", "observation_stage": "before"},
         )

@@ -130,9 +130,10 @@ def apply_experiment_overrides(experiment_cfg: dict[str, Any], bundle: dict[str,
 
         perception_cfg = bundle_local.get("perception")
         if isinstance(perception_cfg, dict):
-            runtime_cfg = perception_cfg.get("sga_gsn", {}).get("runtime")
-            if isinstance(runtime_cfg, dict):
-                runtime_cfg["seed"] = seed
+            for runtime_section in ("sga_gsn", "dgcnn"):
+                runtime_cfg = perception_cfg.get(runtime_section, {}).get("runtime")
+                if isinstance(runtime_cfg, dict):
+                    runtime_cfg["seed"] = seed
 
     logging_cfg = experiment_cfg_local.setdefault("logging", {})
     experiment_name = str(experiment_cfg_local.get("name", "")).strip()

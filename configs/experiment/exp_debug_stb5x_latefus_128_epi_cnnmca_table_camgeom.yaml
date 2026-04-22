@@ -1,8 +1,8 @@
 # 顶层实验配置。
-# 基于 exp_debug_stb5x_latefus_128_epi_cnnmca.yaml，仅将 env 切换为 table-enabled 版本。
+# 基于 exp_debug_stb5x_latefus_128_epi_cnnmca_camgeom.yaml，仅将 env 切换为 table-enabled 版本。
 
 # 实验名。训练输出会写到 logging.log_dir/<name>/ 下。
-name: rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_cnnmca_table
+name: rwd-grp-b_stb-rwd-5x_128-epi_latefus_cnnmca_table_camgeom
 
 # 实验随机种子。train/evaluate 脚本会优先用这里的值。
 seed: 7
@@ -70,8 +70,8 @@ configs:
   # PPO / Trainer 配置路径。由 PPOAgent 和 Trainer 读取。
   rl: configs/rl/ppo_128_epi.yaml
 
-  # actor-critic 网络配置路径。当前 build_actor_critic() 直接消费。
-  actor_critic: configs/model/actor_critic_latefus.yaml
+  # actor-critic 网络配置路径。启用 camera geometry policy observation。
+  actor_critic: configs/model/actor_critic_latefus_camgeom.yaml
 
 logging:
   # 训练输出根目录。实际产物会写到 log_dir/<name>/ 下。

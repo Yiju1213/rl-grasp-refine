@@ -3,7 +3,9 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import torch
 
+from src.runtime.builders import build_actor_critic
 from src.rl.observation_spec import infer_obs_dim_from_spec, resolve_policy_observation_spec
 from src.structures.action import GraspPose
 from src.structures.observation import Observation
@@ -78,6 +80,47 @@ class TestPolicyObservationSpec(unittest.TestCase):
         no_logit_spec = resolve_policy_observation_spec(perception_cfg, no_logit_cfg)
         self.assertEqual(no_logit_spec.components[0], "latent_feature")
         self.assertEqual(infer_obs_dim_from_spec(no_logit_spec), 40)
+
+    def test_paper_camgeom_preset_adds_camera_geometry_context(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_camgeom"}
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        self.assertEqual(
+            spec.components,
+            ("latent_feature", "contact_semantic", "action_axes_in_camera", "hand_pose_in_camera"),
+        )
+        self.assertEqual(infer_obs_dim_from_spec(spec), 55)
+
+        obs = _make_observation()
+        obs.action_axes_in_camera = np.arange(9, dtype=np.float32)
+        obs.hand_pose_in_camera = np.arange(12, dtype=np.float32) + 10.0
+        obs_tensor = observation_to_tensor(obs, spec=spec).squeeze(0).numpy()
+
+        self.assertEqual(obs_tensor.shape, (55,))
+        np.testing.assert_allclose(obs_tensor[:32], obs.latent_feature)
+        np.testing.assert_allclose(obs_tensor[32:34], obs.contact_semantic)
+        np.testing.assert_allclose(obs_tensor[34:43], obs.action_axes_in_camera)
+        np.testing.assert_allclose(obs_tensor[43:55], obs.hand_pose_in_camera)
+
+    def test_late_fusion_actor_critic_accepts_camgeom_aux_features(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_camgeom"}
+
+        actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
+        obs_dim = infer_obs_dim_from_spec(actor_critic.observation_spec)
+
+        self.assertEqual(obs_dim, 55)
+        self.assertEqual(actor_critic.policy_net.aux_dim, 23)
+        self.assertEqual(actor_critic.value_net.aux_dim, 23)
+        action, log_prob, value, entropy = actor_critic.act(torch.zeros(2, obs_dim, dtype=torch.float32))
+        self.assertEqual(tuple(action.shape), (2, 6))
+        self.assertEqual(tuple(log_prob.shape), (2,))
+        self.assertEqual(tuple(value.shape), (2,))
+        self.assertEqual(tuple(entropy.shape), (2,))
 
 
 if __name__ == "__main__":

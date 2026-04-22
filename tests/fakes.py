@@ -159,7 +159,11 @@ class FakeScene:
             "distance_to_edge": float(np.clip(np.linalg.norm(self.current_pose.position[:2]), 0.0, 1.0)),
         }
         return RawSensorObservation(
-            visual_data={"point_cloud": point_cloud, "distance_to_edge": metadata["distance_to_edge"]},
+            visual_data={
+                "point_cloud": point_cloud,
+                "distance_to_edge": metadata["distance_to_edge"],
+                "view_matrix": np.eye(4, dtype=np.float32),
+            },
             tactile_data={"contact_map": tactile},
             grasp_metadata=metadata,
         )

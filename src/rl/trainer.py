@@ -6,6 +6,13 @@ from typing import Any
 import numpy as np
 import torch
 
+from src.metrics.rollout_diagnostics import (
+    action_bin_stats,
+    action_distribution_stats,
+    action_outcome_correlation_stats,
+    records_from_rollout_batch,
+    reliability_stats,
+)
 from src.rl.advantage import compute_returns_and_advantages
 from src.rl.rollout_buffer import RolloutBuffer
 from src.structures.action import NormalizedAction
@@ -571,6 +578,12 @@ class Trainer:
             ),
             **timing_stats,
         }
+        diagnostic_records = records_from_rollout_batch(batch)
+        raw_stats.update(action_distribution_stats(actions))
+        raw_stats.update(reliability_stats(diagnostic_records))
+        if prefix:
+            raw_stats.update(action_outcome_correlation_stats(diagnostic_records))
+            raw_stats.update(action_bin_stats(diagnostic_records))
         for status, count in sorted(status_counts.items()):
             raw_stats[f"outcome/trial_status_{status}_rate"] = float(count) / float(total_attempts)
         if not prefix:

@@ -11,20 +11,25 @@ from src.structures.observation import Observation
 POLICY_OBSERVATION_COMPONENTS = (
     "latent_feature",
     "contact_semantic",
+    "action_axes_in_camera",
+    "hand_pose_in_camera",
     "grasp_position",
     "grasp_rotation",
     "raw_stability_logit",
 )
 
 _PRESET_COMPONENTS = {
-    "current": POLICY_OBSERVATION_COMPONENTS,
+    "current": ("latent_feature", "contact_semantic", "grasp_position", "grasp_rotation", "raw_stability_logit"),
     "paper": ("latent_feature", "contact_semantic"),
+    "paper_camgeom": ("latent_feature", "contact_semantic", "action_axes_in_camera", "hand_pose_in_camera"),
     "no_pose": ("latent_feature", "contact_semantic", "raw_stability_logit"),
     "no_logit": ("latent_feature", "contact_semantic", "grasp_position", "grasp_rotation"),
 }
 
 _STATIC_COMPONENT_DIMS = {
     "contact_semantic": 2,
+    "action_axes_in_camera": 9,
+    "hand_pose_in_camera": 12,
     "grasp_position": 3,
     "grasp_rotation": 3,
     "raw_stability_logit": 1,
@@ -95,6 +100,10 @@ def flatten_single_observation(obs: Observation, spec: PolicyObservationSpec) ->
             components.append(obs.latent_feature.astype(np.float32).reshape(-1))
         elif component == "contact_semantic":
             components.append(obs.contact_semantic.astype(np.float32).reshape(-1))
+        elif component == "action_axes_in_camera":
+            components.append(obs.action_axes_in_camera.astype(np.float32).reshape(-1))
+        elif component == "hand_pose_in_camera":
+            components.append(obs.hand_pose_in_camera.astype(np.float32).reshape(-1))
         elif component == "grasp_position":
             components.append(obs.grasp_pose.position.astype(np.float32).reshape(-1))
         elif component == "grasp_rotation":

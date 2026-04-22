@@ -187,6 +187,20 @@ class Logger:
             return True
         if key.startswith("outcome/trial_status_") and not key.startswith("outcome/trial_status_system_"):
             return True
+        if key.startswith("action/"):
+            return True
+        if key.startswith("corr/"):
+            return True
+        if key.startswith("action_bin/"):
+            return True
+        if key.startswith("calibrator/") and key.endswith("_auc"):
+            return True
+        if key in {
+            "calibrator/before_brier_vs_legacy",
+            "calibrator/prob_delta_recovery_auc",
+            "calibrator/neg_prob_delta_degradation_auc",
+        }:
+            return True
         if key.startswith("contact/") and key.endswith("_mean"):
             return True
         return False
