@@ -1,0 +1,61 @@
+name: seed9_rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus_dgcnn
+
+seed: 9
+
+train_object_id_range: [0, 74]
+holdout_object_id_range: [75, 87]
+split_seed: 7
+val_object_count: 4
+val_object_ratio:
+
+num_iterations: 500
+
+ablation:
+  id: baseline
+
+scene_rebuild_every_n_iterations: 0
+worker_recycle_every_n_iterations: 1
+worker_recycle_slots_per_event: 2
+worker_recycle_enable_standby_prefetch: true
+worker_recycle_prefetch_count: 2
+
+validation:
+  enabled: true
+  every_n_iterations: 3
+  num_workers: 8
+  num_episodes: 384
+  worker_recycle_every_n_iterations: 1
+  worker_recycle_slots_per_event: 2
+  worker_recycle_enable_standby_prefetch: true
+  worker_recycle_prefetch_count: 2
+
+configs:
+  env: configs/env/grasp_refine_env_stb5x.yaml
+  perception: configs/perception/perception_dgcnn.yaml
+  calibration: configs/calibration/online_calibrator.yaml
+  rl: configs/rl/ppo_128_epi.yaml
+  actor_critic: configs/model/actor_critic_latefus.yaml
+
+logging:
+  log_dir: outputs/exp_debug
+  metric_profile: paper
+
+  diagnostics:
+    enabled: false
+
+  checkpoint_dir: outputs/exp_debug/checkpoints
+
+  tensorboard:
+    enabled: true
+    dir: outputs/exp_debug/tensorboard
+
+  sample_metrics:
+    enabled: false
+    path: outputs/exp_debug/episode_metrics.jsonl
+    every_n_iterations: 10
+
+  best_checkpoint:
+    enabled: true
+    metric: validation/outcome/success_lift_vs_dataset
+    mode: max
+    filename: best.pt

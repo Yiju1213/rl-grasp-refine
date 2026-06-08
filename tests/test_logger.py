@@ -122,6 +122,14 @@ class TestLogger(unittest.TestCase):
                 "reward/total_mean": 0.2,
                 "contact/t_cover_after_mean": 0.3,
                 "calibrator/after_brier": 0.4,
+                "calibrator/a": 1.1,
+                "calibrator/b": -0.2,
+                "calibrator/da": 0.01,
+                "calibrator/db": -0.03,
+                "calibrator/grad_norm": 0.4,
+                "calibrator/hessian_cond": 1.2,
+                "calibrator/scale_negative_flag": 0.0,
+                "calibrator/clamp_enabled": 0.0,
                 "ppo/approx_kl": 0.5,
                 "timing/validation_wall_s": 1.0,
                 "system/process_rss_mb": 123.0,
@@ -149,6 +157,14 @@ class TestLogger(unittest.TestCase):
             self.assertIn("action_bin/trans_bin_0_count", filtered)
             self.assertIn("calibrator/prob_after_auc", filtered)
             self.assertIn("calibrator/before_brier_vs_legacy", filtered)
+            self.assertIn("calibrator/a", filtered)
+            self.assertIn("calibrator/b", filtered)
+            self.assertIn("calibrator/da", filtered)
+            self.assertIn("calibrator/db", filtered)
+            self.assertIn("calibrator/grad_norm", filtered)
+            self.assertIn("calibrator/hessian_cond", filtered)
+            self.assertIn("calibrator/scale_negative_flag", filtered)
+            self.assertIn("calibrator/clamp_enabled", filtered)
             self.assertNotIn("outcome/dataset_positive_count", filtered)
             self.assertNotIn("system/process_rss_mb", filtered)
             self.assertNotIn("collection/worker_recycle_performed", filtered)

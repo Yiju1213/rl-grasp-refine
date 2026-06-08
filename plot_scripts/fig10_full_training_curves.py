@@ -14,7 +14,6 @@ from plot_common import (
     add_zero_reference,
     maybe_print_plot_data,
     normalize_multi_value,
-    percent_label,
     print_written_paths,
     save_figure,
     set_default_axis_style,
@@ -23,6 +22,7 @@ from plot_common import (
 
 FIGURE_STEM = "fig10_full_training_curves"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+Y_AXIS_LABEL = "Success Gain over \nDataset Legacy Grasp Outcome (%)"
 
 DEFAULT_RUN_DIRS = (
     REPO_ROOT / "outputs/exp_debug/rwd-grp-b_stb-rwd-5x_128-epi_paper-spec_latefus",
@@ -41,17 +41,17 @@ METRIC_DISPLAY_NAMES = {
 }
 METRIC_STYLES = {
     "validation/outcome/success_lift_vs_dataset": {
-        "color": "#1F4E79",
-        "linestyle": "-",
+        "color": "#6BAED6",
+        "linestyle": "--",
         "linewidth": 2.4,
-        "alpha": 0.20,
+        "alpha": 0.24,
         "zorder": 3,
     },
     "outcome/success_lift_vs_dataset": {
-        "color": "#6BAED6",
-        "linestyle": "--",
+        "color": "#1F4E79",
+        "linestyle": "-",
         "linewidth": 1.9,
-        "alpha": 0.14,
+        "alpha": 0.18,
         "zorder": 2,
     },
 }
@@ -261,7 +261,7 @@ def plot_training_curves(plot_frame: pd.DataFrame, *, dpi: int, out_dir: Path | 
     set_default_axis_style(ax)
     add_zero_reference(ax)
     ax.set_xlabel("Training Iteration")
-    ax.set_ylabel(percent_label("Success Lift vs Dataset"))
+    ax.set_ylabel(Y_AXIS_LABEL)
     ax.legend(frameon=False, loc="best")
     written = save_figure(fig, out_dir=out_dir, stem=FIGURE_STEM, formats=("png",), dpi=dpi)
     plt.close(fig)
@@ -312,7 +312,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out-dir",
-        default=str(REPO_ROOT / "plot_scripts/generated/training"),
+        default=str(REPO_ROOT / "plot_scripts/generated/training/full_policy_seed789"),
         help="Output directory for the PNG and exported plot data CSV.",
     )
     parser.add_argument("--dpi", type=int, default=330, help="Raster export DPI.")

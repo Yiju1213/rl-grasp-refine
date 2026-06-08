@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.stats import t
 
 from plot_common import (
     add_zero_reference,
@@ -16,7 +17,6 @@ from plot_common import (
     save_figure,
     set_default_axis_style,
     set_label_ticks,
-    summarize_adjusted_experiment,
     FIGURE_SIZE_4_3,
     plt,
 )
@@ -32,9 +32,48 @@ def plot_labels_without_baseline(labels: list[str]) -> list[str]:
     return filtered
 
 
+def summarize_adjusted_experiment_t_interval(adjusted_frame: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
+    required = {"label", "display_name", "object_id", "adjusted_value"}
+    missing = sorted(required.difference(adjusted_frame.columns))
+    if missing:
+        raise ValueError(f"adjusted per-object data is missing columns: {missing}")
+
+    object_frame = (
+        adjusted_frame.groupby(["label", "display_name", "object_id"], as_index=False)["adjusted_value"]
+        .mean()
+        .rename(columns={"adjusted_value": "seed_avg_value"})
+    )
+    rows: list[dict[str, float | int | str]] = []
+    for label in labels:
+        label_frame = object_frame.loc[object_frame["label"] == label].copy()
+        values = pd.to_numeric(label_frame["seed_avg_value"], errors="coerce").dropna().to_numpy(dtype=float)
+        if values.size == 0:
+            continue
+        mean = float(values.mean())
+        if values.size <= 1:
+            margin = 0.0
+        else:
+            standard_error = float(values.std(ddof=1) / np.sqrt(values.size))
+            margin = float(t.ppf(0.975, values.size - 1) * standard_error)
+        display_name = str(label_frame["display_name"].iloc[0]) if not label_frame.empty else str(label)
+        rows.append(
+            {
+                "label": label,
+                "display_name": display_name,
+                "adjusted_mean": mean,
+                "adjusted_ci95_low": mean - margin,
+                "adjusted_ci95_high": mean + margin,
+                "num_objects": int(values.size),
+            }
+        )
+    if not rows:
+        raise ValueError("No adjusted experiment summaries could be computed.")
+    return pd.DataFrame(rows).reset_index(drop=True)
+
+
 def _summarize_adjusted_metric(per_object_frame: pd.DataFrame, labels: list[str], metric_key: str, prefix: str) -> pd.DataFrame:
     adjusted_frame = compute_adjusted_per_object_values(per_object_frame, labels, metric_key=metric_key)
-    summary = summarize_adjusted_experiment(adjusted_frame, labels)
+    summary = summarize_adjusted_experiment_t_interval(adjusted_frame, labels)
     return summary.rename(
         columns={
             "adjusted_mean": f"{prefix}_mean",
@@ -56,7 +95,7 @@ def prepare_data(per_object_frame: pd.DataFrame, labels: list[str]) -> pd.DataFr
 
 def build_parser():
     return build_base_parser(
-        "Plot no-action-adjusted degradation and recovery bars with object-bootstrap 95% CI.",
+        "Plot no-action-adjusted degradation and recovery bars with object-level t 95% CI.",
         default_group="main",
     )
 
@@ -105,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     set_default_axis_style(ax)
     add_zero_reference(ax)
     set_label_ticks(ax, plot_frame)
+    ax.set_xticklabels(plot_frame["display_name"].tolist(), rotation=0, ha="center")
     ax.set_ylabel(percent_label("Rate Difference over No-Action"))
     ax.legend(frameon=False)
 

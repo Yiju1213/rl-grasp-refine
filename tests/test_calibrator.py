@@ -23,6 +23,36 @@ class TestCalibrator(unittest.TestCase):
         self.assertGreaterEqual(trace_after, 0.0)
         self.assertNotEqual(trace_before, trace_after)
 
+    def test_update_diagnostics_track_parameter_step(self):
+        calibrator = OnlineLogitCalibrator(make_calibration_cfg())
+        state_before = calibrator.get_state()
+        calibrator.update(np.asarray([-1.0, 0.0, 1.0]), np.asarray([0, 0, 1]))
+        state_after = calibrator.get_state()
+        diagnostics = calibrator.get_update_diagnostics()
+
+        self.assertAlmostEqual(diagnostics["a_before"], float(state_before["a"]), places=7)
+        self.assertAlmostEqual(diagnostics["b_before"], float(state_before["b"]), places=7)
+        self.assertAlmostEqual(diagnostics["a_after"], float(state_after["a"]), places=7)
+        self.assertAlmostEqual(diagnostics["b_after"], float(state_after["b"]), places=7)
+        self.assertAlmostEqual(diagnostics["da"], float(state_after["a"] - state_before["a"]), places=7)
+        self.assertAlmostEqual(diagnostics["db"], float(state_after["b"] - state_before["b"]), places=7)
+        self.assertGreaterEqual(diagnostics["grad_norm"], 0.0)
+        self.assertTrue(np.isfinite(diagnostics["grad_norm"]))
+        self.assertGreater(diagnostics["hessian_cond"], 0.0)
+        self.assertTrue(np.isfinite(diagnostics["hessian_cond"]))
+        self.assertEqual(diagnostics["scale_negative_flag"], float(float(state_after["a"]) < 0.0))
+        self.assertAlmostEqual(diagnostics["posterior_trace"], calibrator.posterior_trace(), places=7)
+
+    def test_update_diagnostics_report_negative_scale_flag(self):
+        calibrator = OnlineLogitCalibrator(make_calibration_cfg())
+        calibrator.a = -0.5
+        calibrator.b = 0.0
+        calibrator.update(np.asarray([-1.0, 0.0, 1.0]), np.asarray([1, 0, 0]))
+        diagnostics = calibrator.get_update_diagnostics()
+
+        self.assertLess(diagnostics["a_after"], 0.0)
+        self.assertEqual(diagnostics["scale_negative_flag"], 1.0)
+
     def test_state_roundtrip_restores_predictions(self):
         calibrator = OnlineLogitCalibrator(make_calibration_cfg())
         calibrator.update(np.asarray([-1.0, 0.0, 1.0]), np.asarray([0, 0, 1]))

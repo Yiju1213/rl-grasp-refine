@@ -127,6 +127,17 @@ _EPISODE_RECORD_FIELDS = (
     *EPISODE_RECORD_EXTRA_FIELDS,
 )
 
+_LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP = {
+    "policy_net.trunk_layer.weight": "policy_net.trunk.0.weight",
+    "policy_net.trunk_layer.bias": "policy_net.trunk.0.bias",
+    "policy_net.output_layer.weight": "policy_net.trunk.2.weight",
+    "policy_net.output_layer.bias": "policy_net.trunk.2.bias",
+    "value_net.trunk_layer.weight": "value_net.trunk.0.weight",
+    "value_net.trunk_layer.bias": "value_net.trunk.0.bias",
+    "value_net.output_layer.weight": "value_net.trunk.2.weight",
+    "value_net.output_layer.bias": "value_net.trunk.2.bias",
+}
+
 
 @dataclass(frozen=True)
 class EvaluationExperiment:
@@ -347,6 +358,33 @@ def load_evaluation_manifest(path: str | Path) -> EvaluationManifest:
     )
 
 
+def _maybe_remap_legacy_actor_critic_state(actor_state: dict[str, Any], target_state: dict[str, Any]) -> dict[str, Any]:
+    actor_keys = set(actor_state)
+    target_keys = set(target_state)
+    if actor_keys == target_keys:
+        return actor_state
+
+    missing_keys = target_keys.difference(actor_keys)
+    unexpected_keys = actor_keys.difference(target_keys)
+    legacy_keys = set(_LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP)
+    remapped_keys = set(_LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP.values())
+    if missing_keys != remapped_keys or unexpected_keys != legacy_keys:
+        return actor_state
+
+    remapped_state = dict(actor_state)
+    for old_key, new_key in _LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP.items():
+        old_value = remapped_state.pop(old_key)
+        old_shape = tuple(getattr(old_value, "shape", ()))
+        new_shape = tuple(getattr(target_state[new_key], "shape", ()))
+        if old_shape != new_shape:
+            raise RuntimeError(
+                "Legacy actor-critic checkpoint key remap matched by name but not by shape: "
+                f"{old_key} {old_shape} -> {new_key} {new_shape}."
+            )
+        remapped_state[new_key] = old_value
+    return remapped_state
+
+
 def restore_evaluation_state(*, checkpoint_path: str | Path, actor_critic, calibrator) -> dict[str, Any]:
     checkpoint = load_checkpoint(checkpoint_path)
     actor_state = checkpoint.get("actor_critic")
@@ -355,6 +393,7 @@ def restore_evaluation_state(*, checkpoint_path: str | Path, actor_critic, calib
         raise KeyError(f"Checkpoint is missing 'actor_critic': {checkpoint_path}")
     if calibrator_state is None:
         raise KeyError(f"Checkpoint is missing 'calibrator': {checkpoint_path}")
+    actor_state = _maybe_remap_legacy_actor_critic_state(actor_state, actor_critic.state_dict())
     actor_critic.load_state_dict(actor_state)
     load_state = getattr(calibrator, "load_state", None)
     if not callable(load_state):

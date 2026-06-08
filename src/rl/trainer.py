@@ -173,12 +173,19 @@ class Trainer:
 
     def update_calibrator(self, batch: dict | None = None) -> dict[str, Any]:
         batch = self.buffer.get_all() if batch is None else batch
+        get_update_diagnostics = getattr(self.calibrator, "get_update_diagnostics", None)
         if batch["raw_logit_after"].size == 0:
-            return self.calibrator.get_state()
+            state = self.calibrator.get_state()
+            if callable(get_update_diagnostics):
+                state["update_diagnostics"] = get_update_diagnostics()
+            return state
         logits = batch["raw_logit_after"]
         labels = np.asarray([info.drop_success for info in batch["infos"]], dtype=np.float32)
         self.calibrator.update(logits, labels)
-        return self.calibrator.get_state()
+        state = self.calibrator.get_state()
+        if callable(get_update_diagnostics):
+            state["update_diagnostics"] = get_update_diagnostics()
+        return state
 
     def _sync_calibrator_to_env(self) -> None:
         self._sync_calibrator_state_to_env(self.env, self.calibrator.get_state())
@@ -563,8 +570,12 @@ class Trainer:
             "calibrator/prob_delta_positive_rate": _rate(prob_delta > 0.0),
             "calibrator/posterior_trace_snapshot": _mean(posterior_trace_snapshot),
             "calibrator/posterior_trace_post_update": float(np.trace(np.asarray(calibrator_post_state["posterior_cov"]))),
+            "calibrator/a": float(calibrator_post_state["a"]),
+            "calibrator/b": float(calibrator_post_state["b"]),
             "calibrator/param_a": float(calibrator_post_state["a"]),
             "calibrator/param_b": float(calibrator_post_state["b"]),
+            "calibrator/scale_negative_flag": float(float(calibrator_post_state["a"]) < 0.0),
+            "calibrator/clamp_enabled": 0.0,
             "calibrator/after_brier": float(brier),
             "calibrator/after_bce": float(bce),
             "action/abs_mean": _mean(np.abs(actions)),
@@ -578,6 +589,16 @@ class Trainer:
             ),
             **timing_stats,
         }
+        update_diagnostics = dict(calibrator_post_state.get("update_diagnostics") or {})
+        if not prefix and update_diagnostics:
+            raw_stats.update(
+                {
+                    "calibrator/da": float(update_diagnostics.get("da", 0.0)),
+                    "calibrator/db": float(update_diagnostics.get("db", 0.0)),
+                    "calibrator/grad_norm": float(update_diagnostics.get("grad_norm", 0.0)),
+                    "calibrator/hessian_cond": float(update_diagnostics.get("hessian_cond", 0.0)),
+                }
+            )
         diagnostic_records = records_from_rollout_batch(batch)
         raw_stats.update(action_distribution_stats(actions))
         raw_stats.update(reliability_stats(diagnostic_records))

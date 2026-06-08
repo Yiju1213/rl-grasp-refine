@@ -20,7 +20,10 @@ class ObservationBuilder:
     def build(self, raw_obs: RawSensorObservation, grasp_pose) -> Observation:
         perception_result = self.feature_extractor.encode(raw_obs)
         contact_semantic = self.contact_semantics_extractor.extract(raw_obs)
-        action_axes_in_camera, hand_pose_in_camera = camera_geometry_context(raw_obs, grasp_pose)
+        action_axes_in_camera, hand_pose_in_camera, finger_geometry_in_camera = camera_geometry_context(
+            raw_obs,
+            grasp_pose,
+        )
         raw_stability_logit = perception_result.raw_stability_logit
         if raw_stability_logit is None:
             raw_stability_logit = self.stability_predictor.predict_logit(perception_result.latent_feature)
@@ -31,4 +34,5 @@ class ObservationBuilder:
             raw_stability_logit=raw_stability_logit,
             action_axes_in_camera=action_axes_in_camera,
             hand_pose_in_camera=hand_pose_in_camera,
+            finger_geometry_in_camera=finger_geometry_in_camera,
         )

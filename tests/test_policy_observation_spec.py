@@ -104,6 +104,58 @@ class TestPolicyObservationSpec(unittest.TestCase):
         np.testing.assert_allclose(obs_tensor[34:43], obs.action_axes_in_camera)
         np.testing.assert_allclose(obs_tensor[43:55], obs.hand_pose_in_camera)
 
+    def test_paper_fingergeom_preset_adds_compact_finger_geometry(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_fingergeom"}
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        self.assertEqual(
+            spec.components,
+            ("latent_feature", "contact_semantic", "finger_geometry_in_camera"),
+        )
+        self.assertEqual(infer_obs_dim_from_spec(spec), 43)
+
+        obs = _make_observation()
+        obs.finger_geometry_in_camera = np.arange(9, dtype=np.float32) + 20.0
+        obs_tensor = observation_to_tensor(obs, spec=spec).squeeze(0).numpy()
+
+        self.assertEqual(obs_tensor.shape, (43,))
+        np.testing.assert_allclose(obs_tensor[:32], obs.latent_feature)
+        np.testing.assert_allclose(obs_tensor[32:34], obs.contact_semantic)
+        np.testing.assert_allclose(obs_tensor[34:43], obs.finger_geometry_in_camera)
+
+    def test_paper_allgeom_preset_adds_camera_and_finger_geometry(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_allgeom"}
+        spec = resolve_policy_observation_spec(perception_cfg, actor_critic_cfg)
+
+        self.assertEqual(
+            spec.components,
+            (
+                "latent_feature",
+                "contact_semantic",
+                "action_axes_in_camera",
+                "hand_pose_in_camera",
+                "finger_geometry_in_camera",
+            ),
+        )
+        self.assertEqual(infer_obs_dim_from_spec(spec), 64)
+
+        obs = _make_observation()
+        obs.action_axes_in_camera = np.arange(9, dtype=np.float32)
+        obs.hand_pose_in_camera = np.arange(12, dtype=np.float32) + 10.0
+        obs.finger_geometry_in_camera = np.arange(9, dtype=np.float32) + 30.0
+        obs_tensor = observation_to_tensor(obs, spec=spec).squeeze(0).numpy()
+
+        self.assertEqual(obs_tensor.shape, (64,))
+        np.testing.assert_allclose(obs_tensor[:32], obs.latent_feature)
+        np.testing.assert_allclose(obs_tensor[32:34], obs.contact_semantic)
+        np.testing.assert_allclose(obs_tensor[34:43], obs.action_axes_in_camera)
+        np.testing.assert_allclose(obs_tensor[43:55], obs.hand_pose_in_camera)
+        np.testing.assert_allclose(obs_tensor[55:64], obs.finger_geometry_in_camera)
+
     def test_late_fusion_actor_critic_accepts_camgeom_aux_features(self):
         perception_cfg = make_perception_cfg()
         actor_critic_cfg = make_actor_critic_cfg()
@@ -116,6 +168,42 @@ class TestPolicyObservationSpec(unittest.TestCase):
         self.assertEqual(obs_dim, 55)
         self.assertEqual(actor_critic.policy_net.aux_dim, 23)
         self.assertEqual(actor_critic.value_net.aux_dim, 23)
+        action, log_prob, value, entropy = actor_critic.act(torch.zeros(2, obs_dim, dtype=torch.float32))
+        self.assertEqual(tuple(action.shape), (2, 6))
+        self.assertEqual(tuple(log_prob.shape), (2,))
+        self.assertEqual(tuple(value.shape), (2,))
+        self.assertEqual(tuple(entropy.shape), (2,))
+
+    def test_late_fusion_actor_critic_accepts_fingergeom_aux_features(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_fingergeom"}
+
+        actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
+        obs_dim = infer_obs_dim_from_spec(actor_critic.observation_spec)
+
+        self.assertEqual(obs_dim, 43)
+        self.assertEqual(actor_critic.policy_net.aux_dim, 11)
+        self.assertEqual(actor_critic.value_net.aux_dim, 11)
+        action, log_prob, value, entropy = actor_critic.act(torch.zeros(2, obs_dim, dtype=torch.float32))
+        self.assertEqual(tuple(action.shape), (2, 6))
+        self.assertEqual(tuple(log_prob.shape), (2,))
+        self.assertEqual(tuple(value.shape), (2,))
+        self.assertEqual(tuple(entropy.shape), (2,))
+
+    def test_late_fusion_actor_critic_accepts_allgeom_aux_features(self):
+        perception_cfg = make_perception_cfg()
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic_cfg["policy_observation"] = {"preset": "paper_allgeom"}
+
+        actor_critic = build_actor_critic(perception_cfg, actor_critic_cfg)
+        obs_dim = infer_obs_dim_from_spec(actor_critic.observation_spec)
+
+        self.assertEqual(obs_dim, 64)
+        self.assertEqual(actor_critic.policy_net.aux_dim, 32)
+        self.assertEqual(actor_critic.value_net.aux_dim, 32)
         action, log_prob, value, entropy = actor_critic.act(torch.zeros(2, obs_dim, dtype=torch.float32))
         self.assertEqual(tuple(action.shape), (2, 6))
         self.assertEqual(tuple(log_prob.shape), (2,))

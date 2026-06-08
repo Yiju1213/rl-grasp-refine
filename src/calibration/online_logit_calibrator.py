@@ -24,6 +24,21 @@ class OnlineLogitCalibrator(BaseCalibrator):
             )
         self.reset()
 
+    def _diagnostics_for_no_update(self) -> dict[str, float]:
+        posterior_trace = self.posterior_trace()
+        return {
+            "a_before": float(self.a),
+            "b_before": float(self.b),
+            "a_after": float(self.a),
+            "b_after": float(self.b),
+            "da": 0.0,
+            "db": 0.0,
+            "grad_norm": 0.0,
+            "hessian_cond": 0.0,
+            "scale_negative_flag": float(self.a < 0.0),
+            "posterior_trace": float(posterior_trace),
+        }
+
     @staticmethod
     def _sigmoid(x):
         return 1.0 / (1.0 + np.exp(-x))
@@ -44,16 +59,19 @@ class OnlineLogitCalibrator(BaseCalibrator):
 
     def update(self, logits, labels) -> None:
         if not self.online_update_enabled or self.signal_mode != "calibrated_probability":
+            self.last_update_diagnostics = self._diagnostics_for_no_update()
             return
         logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
         labels_array = np.asarray(labels, dtype=np.float64).reshape(-1)
         if logits_array.size == 0:
+            self.last_update_diagnostics = self._diagnostics_for_no_update()
             return
         if logits_array.shape != labels_array.shape:
             raise ValueError("logits and labels must have the same shape.")
 
         design = np.stack([logits_array, np.ones_like(logits_array)], axis=1)
         theta = np.asarray([self.a, self.b], dtype=np.float64)
+        theta_before = theta.copy()
         logits_calibrated = design @ theta
         probs = self._sigmoid(logits_calibrated)
 
@@ -69,11 +87,26 @@ class OnlineLogitCalibrator(BaseCalibrator):
         self.a = float(theta[0])
         self.b = float(theta[1])
         self.posterior_cov = np.linalg.inv(hessian)
+        self.last_update_diagnostics = {
+            "a_before": float(theta_before[0]),
+            "b_before": float(theta_before[1]),
+            "a_after": float(theta[0]),
+            "b_after": float(theta[1]),
+            "da": float(theta[0] - theta_before[0]),
+            "db": float(theta[1] - theta_before[1]),
+            "grad_norm": float(np.linalg.norm(grad)),
+            "hessian_cond": float(np.linalg.cond(hessian)),
+            "scale_negative_flag": float(theta[0] < 0.0),
+            "posterior_trace": float(np.trace(self.posterior_cov)),
+        }
 
     def posterior_trace(self) -> float:
         if not self.uncertainty_discount_enabled:
             return 0.0
         return float(np.trace(self.posterior_cov))
+
+    def get_update_diagnostics(self) -> dict[str, float]:
+        return dict(self.last_update_diagnostics)
 
     def get_state(self) -> dict:
         return {
@@ -87,8 +120,10 @@ class OnlineLogitCalibrator(BaseCalibrator):
         self.b = float(state["b"])
         if not self.uncertainty_discount_enabled:
             self.posterior_cov = np.zeros((2, 2), dtype=np.float64)
+            self.last_update_diagnostics = self._diagnostics_for_no_update()
             return
         self.posterior_cov = np.asarray(state["posterior_cov"], dtype=np.float64).copy().reshape(2, 2)
+        self.last_update_diagnostics = self._diagnostics_for_no_update()
 
     def reset(self) -> None:
         self.a = self.init_a
@@ -97,3 +132,4 @@ class OnlineLogitCalibrator(BaseCalibrator):
             self.posterior_cov = np.eye(2, dtype=np.float64) / self.lambda_reg
         else:
             self.posterior_cov = np.zeros((2, 2), dtype=np.float64)
+        self.last_update_diagnostics = self._diagnostics_for_no_update()

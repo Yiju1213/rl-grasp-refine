@@ -19,6 +19,10 @@ def _default_hand_pose_in_camera() -> np.ndarray:
     ).astype(np.float32)
 
 
+def _default_finger_geometry_in_camera() -> np.ndarray:
+    return np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+
+
 @dataclass
 class Observation:
     """Structured observation used throughout the non-RL stack."""
@@ -29,6 +33,7 @@ class Observation:
     raw_stability_logit: float
     action_axes_in_camera: np.ndarray = field(default_factory=_default_action_axes_in_camera)
     hand_pose_in_camera: np.ndarray = field(default_factory=_default_hand_pose_in_camera)
+    finger_geometry_in_camera: np.ndarray = field(default_factory=_default_finger_geometry_in_camera)
 
     def __post_init__(self) -> None:
         self.latent_feature = np.asarray(self.latent_feature, dtype=np.float32).reshape(-1)
@@ -36,10 +41,15 @@ class Observation:
         self.raw_stability_logit = float(self.raw_stability_logit)
         self.action_axes_in_camera = np.asarray(self.action_axes_in_camera, dtype=np.float32).reshape(-1)
         self.hand_pose_in_camera = np.asarray(self.hand_pose_in_camera, dtype=np.float32).reshape(-1)
+        self.finger_geometry_in_camera = np.asarray(self.finger_geometry_in_camera, dtype=np.float32).reshape(-1)
         if self.action_axes_in_camera.shape != (9,):
             raise ValueError(f"action_axes_in_camera must have shape (9,), got {self.action_axes_in_camera.shape}")
         if self.hand_pose_in_camera.shape != (12,):
             raise ValueError(f"hand_pose_in_camera must have shape (12,), got {self.hand_pose_in_camera.shape}")
+        if self.finger_geometry_in_camera.shape != (9,):
+            raise ValueError(
+                f"finger_geometry_in_camera must have shape (9,), got {self.finger_geometry_in_camera.shape}"
+            )
 
 
 @dataclass

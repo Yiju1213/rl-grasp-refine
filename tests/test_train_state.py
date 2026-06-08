@@ -8,7 +8,10 @@ import numpy as np
 import torch
 
 from src.calibration.online_logit_calibrator import OnlineLogitCalibrator
-from src.evaluation.best_checkpoint_pipeline import restore_evaluation_state
+from src.evaluation.best_checkpoint_pipeline import (
+    _LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP,
+    restore_evaluation_state,
+)
 from src.runtime.train_state import resolve_remaining_training_iterations, restore_training_state
 from src.utils.checkpoint import save_checkpoint
 from tests.fakes import build_test_actor_critic, make_actor_critic_cfg, make_calibration_cfg
@@ -190,6 +193,51 @@ class TestTrainState(unittest.TestCase):
                 calibrator_state["posterior_cov"],
             )
         )
+
+    def test_restore_evaluation_state_remaps_legacy_late_fusion_actor_keys(self):
+        actor_critic_cfg = make_actor_critic_cfg()
+        actor_critic_cfg["architecture"] = {"type": "latent_first_late_fusion"}
+        actor_critic, _ = build_test_actor_critic(obs_dim=41, actor_critic_cfg=actor_critic_cfg, latent_dim=32)
+        calibrator = OnlineLogitCalibrator(make_calibration_cfg())
+
+        obs = torch.randn(2, 41)
+        action, log_prob, value, entropy = actor_critic.act(obs)
+        loss = -(log_prob.mean() + value.mean() + entropy.mean() * 0.01 + action.mean() * 0.0)
+        loss.backward()
+        with torch.no_grad():
+            for parameter in actor_critic.parameters():
+                if parameter.grad is not None:
+                    parameter.add_(0.01 * parameter.grad)
+        actor_state = {key: value.detach().clone() for key, value in actor_critic.state_dict().items()}
+        legacy_actor_state = dict(actor_state)
+        for old_key, new_key in _LEGACY_LATE_FUSION_ACTOR_CRITIC_KEY_MAP.items():
+            legacy_actor_state[old_key] = legacy_actor_state.pop(new_key)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_path = Path(tmpdir) / "legacy_best.pt"
+            save_checkpoint(
+                checkpoint_path,
+                {
+                    "actor_critic": legacy_actor_state,
+                    "calibrator": calibrator.get_state(),
+                    "experiment_cfg": {"seed": 7},
+                },
+            )
+
+            restored_actor_critic, _ = build_test_actor_critic(
+                obs_dim=41,
+                actor_critic_cfg=actor_critic_cfg,
+                latent_dim=32,
+            )
+            restored_calibrator = OnlineLogitCalibrator(make_calibration_cfg())
+            restore_evaluation_state(
+                checkpoint_path=checkpoint_path,
+                actor_critic=restored_actor_critic,
+                calibrator=restored_calibrator,
+            )
+
+        for key, value in actor_state.items():
+            self.assertTrue(torch.equal(value, restored_actor_critic.state_dict()[key]))
 
 
 if __name__ == "__main__":

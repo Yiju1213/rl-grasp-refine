@@ -1,0 +1,16 @@
+# actor-critic 网络配置：latent-first late fusion + camera/action/hand/finger geometry context。
+
+architecture:
+  type: latent_first_late_fusion
+
+policy_hidden_dims: [128, 128]
+
+value_hidden_dims: [128, 128]
+
+initial_log_std: -0.8
+
+# paper_allgeom:
+# latent_feature + contact_semantic + action_axes_in_camera + hand_pose_in_camera + finger_geometry_in_camera
+policy_observation:
+  preset: paper_allgeom
+  components: null

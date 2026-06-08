@@ -44,6 +44,36 @@ class TestCNNMCAConfig(unittest.TestCase):
         self.assertEqual(cnnmca_bundle["rl"], camgeom_bundle["rl"])
         self.assertEqual(camgeom_bundle["actor_critic"]["policy_observation"]["preset"], "paper_camgeom")
 
+    def test_cnnmca_fingergeom_experiment_only_replaces_actor_observation(self):
+        cnnmca_exp, cnnmca_bundle = load_experiment_bundle(
+            "configs/experiment/exp_debug_stb5x_latefus_128_epi_cnnmca.yaml"
+        )
+        fingergeom_exp, fingergeom_bundle = load_experiment_bundle(
+            "configs/experiment/exp_debug_stb5x_latefus_128_epi_cnnmca_fingergeom.yaml"
+        )
+
+        self.assertNotEqual(cnnmca_exp["name"], fingergeom_exp["name"])
+        self.assertEqual(cnnmca_bundle["env"], fingergeom_bundle["env"])
+        self.assertEqual(cnnmca_bundle["perception"], fingergeom_bundle["perception"])
+        self.assertEqual(cnnmca_bundle["calibration"], fingergeom_bundle["calibration"])
+        self.assertEqual(cnnmca_bundle["rl"], fingergeom_bundle["rl"])
+        self.assertEqual(fingergeom_bundle["actor_critic"]["policy_observation"]["preset"], "paper_fingergeom")
+
+    def test_cnnmca_allgeom_experiment_only_replaces_actor_observation(self):
+        cnnmca_exp, cnnmca_bundle = load_experiment_bundle(
+            "configs/experiment/exp_debug_stb5x_latefus_128_epi_cnnmca.yaml"
+        )
+        allgeom_exp, allgeom_bundle = load_experiment_bundle(
+            "configs/experiment/exp_debug_stb5x_latefus_128_epi_cnnmca_allgeom.yaml"
+        )
+
+        self.assertNotEqual(cnnmca_exp["name"], allgeom_exp["name"])
+        self.assertEqual(cnnmca_bundle["env"], allgeom_bundle["env"])
+        self.assertEqual(cnnmca_bundle["perception"], allgeom_bundle["perception"])
+        self.assertEqual(cnnmca_bundle["calibration"], allgeom_bundle["calibration"])
+        self.assertEqual(cnnmca_bundle["rl"], allgeom_bundle["rl"])
+        self.assertEqual(allgeom_bundle["actor_critic"]["policy_observation"]["preset"], "paper_allgeom")
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required to instantiate CNNMCA runtime.")
     def test_build_perception_stack_accepts_cnnmca_adapter(self):
         perception_cfg = load_config(Path("configs/perception/perception_cnnmca.yaml"))

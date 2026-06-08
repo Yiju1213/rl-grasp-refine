@@ -277,7 +277,17 @@ class TestSingleStepPipeline(unittest.TestCase):
                 "raw_logit_after": np.asarray([0.1, 0.1, 0.1, 0.1], dtype=np.float32),
             },
             collection_report={"attempts_total": 4, "valid_episodes": 4, "attempt_summaries": []},
-            calibrator_post_state={"a": 1.0, "b": 0.0, "posterior_cov": np.eye(2, dtype=np.float32)},
+            calibrator_post_state={
+                "a": 1.0,
+                "b": 0.0,
+                "posterior_cov": np.eye(2, dtype=np.float32),
+                "update_diagnostics": {
+                    "da": 0.1,
+                    "db": -0.2,
+                    "grad_norm": 0.3,
+                    "hessian_cond": 1.4,
+                },
+            },
             timing_stats={},
         )
 
@@ -285,6 +295,16 @@ class TestSingleStepPipeline(unittest.TestCase):
         self.assertEqual(stats["outcome/dataset_negative_count"], 2.0)
         self.assertAlmostEqual(stats["outcome/drop_rate_after_given_dataset_positive"], 0.5, places=7)
         self.assertAlmostEqual(stats["outcome/hold_rate_after_given_dataset_negative"], 0.5, places=7)
+        self.assertEqual(stats["calibrator/a"], 1.0)
+        self.assertEqual(stats["calibrator/b"], 0.0)
+        self.assertEqual(stats["calibrator/param_a"], 1.0)
+        self.assertEqual(stats["calibrator/param_b"], 0.0)
+        self.assertEqual(stats["calibrator/da"], 0.1)
+        self.assertEqual(stats["calibrator/db"], -0.2)
+        self.assertEqual(stats["calibrator/grad_norm"], 0.3)
+        self.assertEqual(stats["calibrator/hessian_cond"], 1.4)
+        self.assertEqual(stats["calibrator/scale_negative_flag"], 0.0)
+        self.assertEqual(stats["calibrator/clamp_enabled"], 0.0)
 
     def test_joint_tactile_ablation_removes_policy_input_but_keeps_contact_metrics(self):
         _, bundle = apply_experiment_overrides(
