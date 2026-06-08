@@ -48,3 +48,7 @@ docs/signal_plot.md
 plot_scripts/generated/
 plot_scripts/SIMSUN*
 configs/experiment/backup
+
+# open-source cleanup
+docs/
+plot_scripts/
